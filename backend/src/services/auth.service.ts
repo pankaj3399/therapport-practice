@@ -12,6 +12,9 @@ import type {
   ForgotPasswordRequest,
   ResetPasswordRequest,
   ChangeEmailRequest,
+  ChangePasswordRequest,
+  UpdateProfileRequest,
+  User,
 } from '../types';
 
 export class AuthService {
@@ -258,6 +261,101 @@ export class AuthService {
       firstName: user.firstName,
       oldEmail,
     });
+  }
+
+  async changePassword(userId: string, data: ChangePasswordRequest): Promise<void> {
+    // Get user
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await comparePassword(data.currentPassword, user.passwordHash);
+    if (!isCurrentPasswordValid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    // Hash new password
+    const passwordHash = await hashPassword(data.newPassword);
+
+    // Update password
+    await db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async updateProfile(userId: string, data: UpdateProfileRequest): Promise<User> {
+    // Get user
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Update user profile
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        nextOfKin: data.nextOfKin as any,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+
+    return {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      firstName: updatedUser.firstName,
+      lastName: updatedUser.lastName,
+      photoUrl: updatedUser.photoUrl || undefined,
+      role: updatedUser.role,
+      nextOfKin: updatedUser.nextOfKin as any,
+      emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
+      createdAt: updatedUser.createdAt,
+      updatedAt: updatedUser.updatedAt,
+    };
+  }
+
+  async refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+    const { verifyRefreshToken, generateAccessToken, generateRefreshToken } = await import('../utils/jwt.util');
+
+    // Verify refresh token
+    const payload = verifyRefreshToken(refreshToken);
+
+    // Verify user still exists
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, payload.userId),
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Generate new tokens
+    const newAccessToken = generateAccessToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    const newRefreshToken = generateRefreshToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
+
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 }
 

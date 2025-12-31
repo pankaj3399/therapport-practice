@@ -28,6 +28,23 @@ const changeEmailSchema = z.object({
   newEmail: z.string().email(),
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+const updateProfileSchema = z.object({
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  nextOfKin: z
+    .object({
+      name: z.string().optional(),
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+    })
+    .optional(),
+});
+
 export class AuthController {
   async register(req: Request, res: Response) {
     try {
@@ -139,6 +156,48 @@ export class AuthController {
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  async changePassword(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const data = changePasswordSchema.parse(req.body);
+      await authService.changePassword(req.user.id, data);
+      res.status(200).json({ success: true, message: 'Password changed successfully' });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async updateProfile(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const data = updateProfileSchema.parse(req.body);
+      const updatedUser = await authService.updateProfile(req.user.id, data);
+      res.status(200).json({ success: true, data: updatedUser });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async refreshToken(req: Request, res: Response) {
+    try {
+      const { refreshToken } = req.body;
+      if (!refreshToken) {
+        return res.status(400).json({ success: false, error: 'Refresh token is required' });
+      }
+
+      const tokens = await authService.refreshToken(refreshToken);
+      res.status(200).json({ success: true, data: tokens });
+    } catch (error: any) {
+      res.status(401).json({ success: false, error: error.message });
     }
   }
 }

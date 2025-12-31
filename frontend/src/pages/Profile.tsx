@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -9,11 +9,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Icon } from '@/components/ui/Icon';
 import { Separator } from '@/components/ui/separator';
-import axios from 'axios';
+import api from '@/services/api';
 import { cn } from '@/lib/utils';
 
 export const Profile: React.FC = () => {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [activeTab, setActiveTab] = useState('personal');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -24,6 +24,29 @@ export const Profile: React.FC = () => {
     lastName: user?.lastName || '',
     phone: '',
   });
+
+  // Next of Kin
+  const [nextOfKin, setNextOfKin] = useState({
+    name: (user?.nextOfKin as any)?.name || '',
+    phone: (user?.nextOfKin as any)?.phone || '',
+    email: (user?.nextOfKin as any)?.email || '',
+  });
+
+  // Update state when user changes
+  useEffect(() => {
+    if (user) {
+      setPersonalInfo({
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        phone: '',
+      });
+      setNextOfKin({
+        name: (user.nextOfKin as any)?.name || '',
+        phone: (user.nextOfKin as any)?.phone || '',
+        email: (user.nextOfKin as any)?.email || '',
+      });
+    }
+  }, [user]);
 
   // Password Change
   const [passwordData, setPasswordData] = useState({
@@ -49,9 +72,28 @@ export const Profile: React.FC = () => {
     setMessage(null);
 
     try {
-      // TODO: Implement update user endpoint
-      setMessage({ type: 'success', text: 'Personal information updated successfully' });
-      setTimeout(() => setMessage(null), 3000);
+      // Prepare nextOfKin object (only include if at least one field is filled)
+      const nextOfKinData =
+        nextOfKin.name || nextOfKin.phone || nextOfKin.email
+          ? {
+              name: nextOfKin.name || undefined,
+              phone: nextOfKin.phone || undefined,
+              email: nextOfKin.email || undefined,
+            }
+          : undefined;
+
+      const response = await api.put('/auth/profile', {
+        firstName: personalInfo.firstName,
+        lastName: personalInfo.lastName,
+        nextOfKin: nextOfKinData,
+      });
+
+      if (response.data.success && response.data.data) {
+        // Update AuthContext with new user data
+        updateUser(response.data.data);
+        setMessage({ type: 'success', text: 'Personal information updated successfully' });
+        setTimeout(() => setMessage(null), 3000);
+      }
     } catch (error: any) {
       setMessage({ type: 'error', text: error.response?.data?.error || 'Failed to update information' });
     } finally {
@@ -77,10 +119,19 @@ export const Profile: React.FC = () => {
     }
 
     try {
-      // TODO: Implement change password endpoint
-      setMessage({ type: 'success', text: 'Password changed successfully' });
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      setTimeout(() => setMessage(null), 3000);
+      const response = await api.post(
+        '/auth/change-password',
+        {
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword,
+        }
+      );
+
+      if (response.data.success) {
+        setMessage({ type: 'success', text: 'Password changed successfully' });
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setTimeout(() => setMessage(null), 3000);
+      }
     } catch (error: any) {
       setMessage({ type: 'error', text: error.response?.data?.error || 'Failed to change password' });
     } finally {
@@ -94,15 +145,9 @@ export const Profile: React.FC = () => {
     setMessage(null);
 
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/change-email`,
-        { newEmail: emailData.newEmail },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-          },
-        }
-      );
+      const response = await api.post('/auth/change-email', {
+        newEmail: emailData.newEmail,
+      });
 
       if (response.data.success) {
         setMessage({
@@ -229,12 +274,39 @@ export const Profile: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="kinName">Name</Label>
-                      <Input id="kinName" placeholder="John Doe" />
+                      <Input
+                        id="kinName"
+                        value={nextOfKin.name}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setNextOfKin({ ...nextOfKin, name: e.target.value })
+                        }
+                        placeholder="John Doe"
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="kinPhone">Phone</Label>
-                      <Input id="kinPhone" type="tel" placeholder="+44 20 1234 5678" />
+                      <Input
+                        id="kinPhone"
+                        type="tel"
+                        value={nextOfKin.phone}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setNextOfKin({ ...nextOfKin, phone: e.target.value })
+                        }
+                        placeholder="+44 20 1234 5678"
+                      />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="kinEmail">Email</Label>
+                    <Input
+                      id="kinEmail"
+                      type="email"
+                      value={nextOfKin.email}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setNextOfKin({ ...nextOfKin, email: e.target.value })
+                      }
+                      placeholder="john.doe@example.com"
+                    />
                   </div>
                 </div>
 

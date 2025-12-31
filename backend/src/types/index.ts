@@ -116,6 +116,17 @@ export interface VerifyEmailRequest {
   token: string;
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface UpdateProfileRequest {
+  firstName: string;
+  lastName: string;
+  nextOfKin?: NextOfKin;
+}
+
 // API Response types
 export interface ApiResponse<T = any> {
   success: boolean;
