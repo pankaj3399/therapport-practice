@@ -154,7 +154,9 @@ export class AuthService {
     });
 
     // Send reset email
-    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+    const resetLink = `${
+      process.env.FRONTEND_URL || 'http://localhost:5173'
+    }/reset-password?token=${token}`;
     await emailService.sendPasswordResetEmail({
       firstName: user.firstName,
       email: user.email,
@@ -178,7 +180,10 @@ export class AuthService {
     await db.update(users).set({ passwordHash }).where(eq(users.id, resetRecord.userId));
 
     // Mark token as used
-    await db.update(passwordResets).set({ used: true }).where(eq(passwordResets.id, resetRecord.id));
+    await db
+      .update(passwordResets)
+      .set({ used: true })
+      .where(eq(passwordResets.id, resetRecord.id));
   }
 
   async changeEmail(userId: string, data: ChangeEmailRequest): Promise<void> {
@@ -217,7 +222,9 @@ export class AuthService {
     });
 
     // Send verification email to new address
-    const verificationLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email-change?token=${token}`;
+    const verificationLink = `${
+      process.env.FRONTEND_URL || 'http://localhost:5173'
+    }/verify-email-change?token=${token}`;
     await emailService.sendEmailChangeVerification({
       firstName: user.firstName,
       verificationLink,
@@ -283,10 +290,7 @@ export class AuthService {
     const passwordHash = await hashPassword(data.newPassword);
 
     // Update password
-    await db
-      .update(users)
-      .set({ passwordHash, updatedAt: new Date() })
-      .where(eq(users.id, userId));
+    await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
   }
 
   async updateProfile(userId: string, data: UpdateProfileRequest): Promise<User> {
@@ -326,7 +330,9 @@ export class AuthService {
   }
 
   async refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-    const { verifyRefreshToken, generateAccessToken, generateRefreshToken } = await import('../utils/jwt.util');
+    const { verifyRefreshToken, generateAccessToken, generateRefreshToken } = await import(
+      '../utils/jwt.util'
+    );
 
     // Verify refresh token
     const payload = verifyRefreshToken(refreshToken);
@@ -360,4 +366,3 @@ export class AuthService {
 }
 
 export const authService = new AuthService();
-

@@ -124,7 +124,7 @@ export interface ChangePasswordRequest {
 export interface UpdateProfileRequest {
   firstName: string;
   lastName: string;
-  nextOfKin?: NextOfKin;
+  nextOfKin?: Partial<NextOfKin>;
 }
 
 // API Response types
@@ -134,4 +134,3 @@ export interface ApiResponse<T = any> {
   error?: string;
   message?: string;
 }
-
