@@ -9,15 +9,16 @@ interface NavItem {
   icon: string;
   path: string;
   active?: boolean;
+  implemented?: boolean;
 }
 
 const navItems: NavItem[] = [
-  { name: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
-  { name: 'Bookings', icon: 'calendar_month', path: '/bookings' },
-  { name: 'Finance', icon: 'credit_card', path: '/finance' },
-  { name: 'Compliance', icon: 'description', path: '/compliance' },
-  { name: 'Support', icon: 'support_agent', path: '/support' },
-  { name: 'Profile', icon: 'person', path: '/profile' },
+  { name: 'Dashboard', icon: 'dashboard', path: '/dashboard', implemented: true },
+  { name: 'Bookings', icon: 'calendar_month', path: '/bookings', implemented: false },
+  { name: 'Finance', icon: 'credit_card', path: '/finance', implemented: false },
+  { name: 'Compliance', icon: 'description', path: '/compliance', implemented: false },
+  { name: 'Support', icon: 'support_agent', path: '/support', implemented: false },
+  { name: 'Profile', icon: 'person', path: '/profile', implemented: true },
 ];
 
 export const Sidebar: React.FC = () => {
@@ -46,32 +47,34 @@ export const Sidebar: React.FC = () => {
 
         {/* Navigation */}
         <nav className="flex flex-col gap-2">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={cn(
-                  'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors',
-                  isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                )}
-              >
-                <Icon
-                  name={item.icon}
+          {navItems
+            .filter((item) => item.implemented === true)
+            .map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
                   className={cn(
-                    isActive && 'icon-fill',
-                    !isActive && 'group-hover:text-primary transition-colors'
+                    'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors',
+                    isActive
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                   )}
-                />
-                <span className={cn('text-sm', isActive ? 'font-bold' : 'font-medium')}>
-                  {item.name}
-                </span>
-              </Link>
-            );
-          })}
+                >
+                  <Icon
+                    name={item.icon}
+                    className={cn(
+                      isActive && 'icon-fill',
+                      !isActive && 'group-hover:text-primary transition-colors'
+                    )}
+                  />
+                  <span className={cn('text-sm', isActive ? 'font-bold' : 'font-medium')}>
+                    {item.name}
+                  </span>
+                </Link>
+              );
+            })}
         </nav>
       </div>
 
