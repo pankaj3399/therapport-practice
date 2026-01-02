@@ -6,6 +6,7 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  phone?: string;
   photoUrl?: string;
   role: UserRole;
   nextOfKin?: NextOfKin;
@@ -124,6 +125,7 @@ export interface ChangePasswordRequest {
 export interface UpdateProfileRequest {
   firstName: string;
   lastName: string;
+  phone?: string;
   nextOfKin?: Partial<NextOfKin>;
 }
 

@@ -38,7 +38,7 @@ export const Profile: React.FC = () => {
       setPersonalInfo({
         firstName: user.firstName || '',
         lastName: user.lastName || '',
-        phone: '',
+        phone: user.phone || '',
       });
       setNextOfKin({
         name: (user.nextOfKin as any)?.name || '',
@@ -85,6 +85,7 @@ export const Profile: React.FC = () => {
       const response = await api.put('/auth/profile', {
         firstName: personalInfo.firstName,
         lastName: personalInfo.lastName,
+        phone: personalInfo.phone || undefined,
         nextOfKin: nextOfKinData,
       });
 
@@ -198,9 +199,9 @@ export const Profile: React.FC = () => {
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="personal">Personal Info</TabsTrigger>
+            <TabsTrigger value="personal">General Info</TabsTrigger>
             <TabsTrigger value="security">Password & Security</TabsTrigger>
-            <TabsTrigger value="compliance">Compliance</TabsTrigger>
+            <TabsTrigger value="compliance">Clinical Requirements</TabsTrigger>
           </TabsList>
 
           {/* Personal Information Tab */}
@@ -209,7 +210,7 @@ export const Profile: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Icon name="person" className="text-primary" />
-                  Personal Information
+                  General Information
                 </CardTitle>
                 <CardDescription>
                   Update your personal details and contact information
@@ -339,6 +340,46 @@ export const Profile: React.FC = () => {
                         }
                         placeholder="john.doe@example.com"
                       />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Insurance
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="insuranceFile">Insurance Document</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="insuranceFile"
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="flex-1"
+                            disabled
+                          />
+                          <Button variant="outline" size="sm" disabled>
+                            <Icon name="upload" size={18} className="mr-2" />
+                            Upload
+                          </Button>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Upload your professional indemnity insurance document
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="insuranceExpiry">Insurance Document Expiry Date</Label>
+                        <Input
+                          id="insuranceExpiry"
+                          type="date"
+                          disabled
+                        />
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Document upload functionality will be available in Week 2
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -486,47 +527,90 @@ export const Profile: React.FC = () => {
             </Card>
           </TabsContent>
 
-          {/* Compliance Tab */}
+          {/* Clinical Requirements Tab */}
           <TabsContent value="compliance" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Icon name="description" className="text-primary" />
-                  Compliance Documents
+                  Clinical Requirements
                 </CardTitle>
-                <CardDescription>Upload and manage your professional documents</CardDescription>
+                <CardDescription>Upload and manage your clinical registration documents and executor information</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  <div className="p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center">
-                    <Icon name="upload_file" className="text-slate-400 text-4xl mb-2 mx-auto" />
-                    <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                      Insurance Documents
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-500 mb-4">
-                      Upload your professional indemnity insurance documents
-                    </p>
-                    <Button variant="outline" size="sm">
-                      <Icon name="upload" size={18} className="mr-2" />
-                      Upload Document
-                    </Button>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="clinicalRegistrationFile">Clinical Registration Document</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="clinicalRegistrationFile"
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          className="flex-1"
+                          disabled
+                        />
+                        <Button variant="outline" size="sm" disabled>
+                          <Icon name="upload" size={18} className="mr-2" />
+                          Upload
+                        </Button>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Upload your professional registration document
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="clinicalRegistrationExpiry">Clinical Registration Document Expiry Date</Label>
+                      <Input
+                        id="clinicalRegistrationExpiry"
+                        type="date"
+                        disabled
+                      />
+                    </div>
                   </div>
 
-                  <div className="p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center">
-                    <Icon name="upload_file" className="text-slate-400 text-4xl mb-2 mx-auto" />
-                    <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                      Clinical Registration
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-500 mb-4">
-                      Upload your professional registration documents
-                    </p>
-                    <Button variant="outline" size="sm">
-                      <Icon name="upload" size={18} className="mr-2" />
-                      Upload Document
-                    </Button>
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">
+                        Clinical Executor Information
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                        A clinical executor is the person appointed by a therapist to carry out their professional and ethical responsibilities—such as safeguarding clients, managing clinical records, and closing or transferring a practice—if the therapist dies or becomes incapacitated.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="executorName">Name</Label>
+                        <Input
+                          id="executorName"
+                          placeholder="John Doe"
+                          disabled
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="executorEmail">Email</Label>
+                        <Input
+                          id="executorEmail"
+                          type="email"
+                          placeholder="john.doe@example.com"
+                          disabled
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="executorPhone">Phone Number</Label>
+                      <Input
+                        id="executorPhone"
+                        type="tel"
+                        placeholder="+44 20 1234 5678"
+                        disabled
+                      />
+                    </div>
                   </div>
 
-                  <p className="text-xs text-slate-500 dark:text-slate-500 text-center">
+                  <p className="text-xs text-slate-500 dark:text-slate-500 text-center pt-4">
                     Document upload functionality will be available in Week 2
                   </p>
                 </div>

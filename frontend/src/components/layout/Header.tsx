@@ -8,9 +8,7 @@ export const Header: React.FC = () => {
   return (
     <header className="lg:hidden flex items-center justify-between p-4 bg-surface-light dark:bg-surface-dark border-b border-slate-200 dark:border-slate-800">
       <div className="flex items-center gap-2">
-        <div className="bg-primary/10 p-1.5 rounded-lg">
-          <Icon name="medical_services" className="text-primary text-xl" />
-        </div>
+        <img src="/logo.png" alt="Therapport" className="h-6 w-auto" />
         <span className="font-bold text-lg text-slate-900 dark:text-white">Therapport</span>
       </div>
       <div className="flex items-center gap-3">

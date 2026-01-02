@@ -36,6 +36,7 @@ const changePasswordSchema = z.object({
 const updateProfileSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
+  phone: z.string().max(50).optional(),
   nextOfKin: z
     .object({
       name: z.string().optional(),
@@ -146,6 +147,7 @@ export class AuthController {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
+          phone: user.phone || undefined,
           photoUrl: user.photoUrl || undefined,
           role: user.role,
           nextOfKin: user.nextOfKin,

@@ -36,12 +36,10 @@ export const Sidebar: React.FC = () => {
       <div className="flex flex-col gap-8">
         {/* Logo */}
         <div className="flex items-center gap-3 px-2">
-          <div className="bg-primary/10 p-2 rounded-lg">
-            <Icon name="medical_services" className="text-primary text-2xl" />
-          </div>
+          <img src="/logo.png" alt="Therapport" className="h-8 w-auto" />
           <div className="flex flex-col">
             <h1 className="text-slate-900 dark:text-white text-lg font-bold leading-none">Therapport</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">Practitioner Portal</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">Renter's App</p>
           </div>
         </div>
 
@@ -91,7 +89,7 @@ export const Sidebar: React.FC = () => {
             {user?.firstName} {user?.lastName}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-            {user?.role === 'practitioner' ? 'Practitioner' : user?.role}
+            {user?.role === 'practitioner' ? 'Renter' : user?.role}
           </p>
         </div>
         <button

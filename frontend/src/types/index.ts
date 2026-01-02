@@ -6,6 +6,7 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  phone?: string;
   photoUrl?: string;
   role: UserRole;
   nextOfKin?: NextOfKin;

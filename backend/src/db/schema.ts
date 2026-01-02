@@ -37,6 +37,7 @@ export const users = pgTable(
     passwordHash: varchar('password_hash', { length: 255 }).notNull(),
     firstName: varchar('first_name', { length: 100 }).notNull(),
     lastName: varchar('last_name', { length: 100 }).notNull(),
+    phone: varchar('phone', { length: 50 }),
     photoUrl: varchar('photo_url', { length: 500 }),
     role: userRoleEnum('role').notNull().default('practitioner'),
     nextOfKin: jsonb('next_of_kin'),

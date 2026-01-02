@@ -7,6 +7,7 @@ import { Login } from './pages/auth/Login';
 import { Signup } from './pages/auth/Signup';
 import { ForgotPassword } from './pages/auth/ForgotPassword';
 import { ResetPassword } from './pages/auth/ResetPassword';
+import { VerifyEmailChange } from './pages/auth/VerifyEmailChange';
 import { Dashboard } from './pages/Dashboard';
 import { Profile } from './pages/Profile';
 import './styles/globals.css';
@@ -22,6 +23,7 @@ function App() {
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email-change" element={<VerifyEmailChange />} />
             <Route
               path="/dashboard"
               element={

@@ -8,9 +8,7 @@ export const Landing: React.FC = () => {
     <div className="min-h-screen bg-background-light dark:bg-background-dark font-display">
       <nav className="sticky top-0 z-50 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-surface-light dark:bg-surface-dark px-6 py-3 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="bg-primary/10 p-2 rounded-lg">
-            <Icon name="medical_services" className="text-primary text-2xl" />
-          </div>
+          <img src="/logo.png" alt="Therapport" className="h-8 w-auto" />
           <h2 className="text-slate-900 dark:text-white text-xl font-bold">Therapport</h2>
         </div>
         <div className="flex items-center gap-4">
@@ -29,9 +27,9 @@ export const Landing: React.FC = () => {
       <main className="max-w-7xl mx-auto px-6 py-16 md:py-24">
         <div className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 dark:text-white mb-6 tracking-tight">
-            Professional Practice
+            Therapport Limited
             <br />
-            <span className="text-primary">Management Made Simple</span>
+            <span className="text-primary">Room Booking App</span>
           </h1>
           <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto mb-8">
             Book meeting and therapy rooms, manage documents, and handle your practice operations all in one place.
@@ -82,7 +80,7 @@ export const Landing: React.FC = () => {
               Professional Tools
             </h3>
             <p className="text-slate-600 dark:text-slate-300">
-              All the tools you need to manage your practice efficiently. Track bookings, finances, and compliance.
+              All the tools you need to manage your rental efficiently. Track bookings, finances, and compliance.
             </p>
           </div>
         </div>

@@ -32,7 +32,7 @@ export const Dashboard: React.FC = () => {
               Welcome back, {user?.firstName}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 text-base font-normal">
-              Here is your practice overview for <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
+              Here is your overview for <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
             </p>
           </div>
           <Button>
@@ -50,12 +50,12 @@ export const Dashboard: React.FC = () => {
             </div>
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
               <p className="text-slate-500 dark:text-slate-400 font-medium">Credit Balance</p>
-              <div className="flex items-baseline gap-1">
-                <span className="text-primary text-4xl font-black tracking-tight">£1,250.00</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded w-fit">
-                <Icon name="trending_up" size={16} />
-                +£150.00 this month
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-primary text-3xl font-black tracking-tight">£1,250.00</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [this month]</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [next month]</p>
               </div>
             </CardContent>
           </Card>
@@ -93,7 +93,7 @@ export const Dashboard: React.FC = () => {
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-slate-900 dark:text-white font-bold text-lg">Signed In</p>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">Kiosk: Front Desk A</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">Pimlico Tablet</p>
                     <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">Check-in: 09:00 AM</p>
                   </div>
                 </div>
@@ -126,15 +126,17 @@ export const Dashboard: React.FC = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Room</TableHead>
-                      <TableHead>Date & Time</TableHead>
-                      <TableHead>End Time</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>From</TableHead>
+                      <TableHead>To</TableHead>
+                      <TableHead className="text-right">Cancel</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     <TableRow>
                       <TableCell className="font-medium">Pimlico Room 1</TableCell>
-                      <TableCell>Today, 11:00 AM</TableCell>
+                      <TableCell>Today</TableCell>
+                      <TableCell>11:00 AM</TableCell>
                       <TableCell>12:00 PM</TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="sm">
@@ -144,7 +146,8 @@ export const Dashboard: React.FC = () => {
                     </TableRow>
                     <TableRow>
                       <TableCell className="font-medium">Kensington Room 3</TableCell>
-                      <TableCell>Tomorrow, 2:00 PM</TableCell>
+                      <TableCell>Tomorrow</TableCell>
+                      <TableCell>2:00 PM</TableCell>
                       <TableCell>3:30 PM</TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="sm">
@@ -175,6 +178,7 @@ export const Dashboard: React.FC = () => {
                       <TableHead>Date</TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead>Amount</TableHead>
+                      <TableHead>Receipts</TableHead>
                       <TableHead className="text-right">Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -183,6 +187,12 @@ export const Dashboard: React.FC = () => {
                       <TableCell>Oct 20, 2023</TableCell>
                       <TableCell>Room Booking - Pimlico Room 1</TableCell>
                       <TableCell className="font-medium">-£25.00</TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" disabled>
+                          <Icon name="download" size={16} className="mr-1" />
+                          Download
+                        </Button>
+                      </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="success">Completed</Badge>
                       </TableCell>
@@ -191,6 +201,12 @@ export const Dashboard: React.FC = () => {
                       <TableCell>Oct 18, 2023</TableCell>
                       <TableCell>Credit Top-up</TableCell>
                       <TableCell className="font-medium text-green-600 dark:text-green-400">+£100.00</TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" disabled>
+                          <Icon name="download" size={16} className="mr-1" />
+                          Download
+                        </Button>
+                      </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="success">Completed</Badge>
                       </TableCell>
@@ -201,13 +217,13 @@ export const Dashboard: React.FC = () => {
             </Card>
           </div>
 
-          {/* Right Column (Compliance Widget) */}
+          {/* Right Column (Documents Widget) */}
           <div className="xl:col-span-1">
             <Card>
               <CardHeader className="border-b border-slate-100 dark:border-slate-800">
                 <CardTitle className="flex items-center gap-2">
                   <Icon name="description" className="text-primary" />
-                  Compliance
+                  Documents
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6">
@@ -217,14 +233,14 @@ export const Dashboard: React.FC = () => {
                       <Icon name="verified" className="text-green-500" />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">Insurance</span>
                     </div>
-                    <Badge variant="success">Valid</Badge>
+                    <Badge variant="success">Valid until 30.09.2026</Badge>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Icon name="verified" className="text-green-500" />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">Registration</span>
                     </div>
-                    <Badge variant="success">Valid</Badge>
+                    <Badge variant="success">Valid until 30.09.2026</Badge>
                   </div>
                   <Button variant="outline" className="w-full">
                     <Icon name="upload" size={18} className="mr-2" />

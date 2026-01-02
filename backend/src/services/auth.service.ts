@@ -71,6 +71,7 @@ export class AuthService {
         email: newUser.email,
         firstName: newUser.firstName,
         lastName: newUser.lastName,
+        phone: newUser.phone || undefined,
         photoUrl: newUser.photoUrl || undefined,
         role: newUser.role,
         nextOfKin: newUser.nextOfKin as any,
@@ -115,6 +116,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        phone: user.phone || undefined,
         photoUrl: user.photoUrl || undefined,
         role: user.role,
         nextOfKin: user.nextOfKin as any,
@@ -309,6 +311,7 @@ export class AuthService {
       .set({
         firstName: data.firstName,
         lastName: data.lastName,
+        phone: data.phone || null,
         nextOfKin: data.nextOfKin as any,
         updatedAt: new Date(),
       })
@@ -320,6 +323,7 @@ export class AuthService {
       email: updatedUser.email,
       firstName: updatedUser.firstName,
       lastName: updatedUser.lastName,
+      phone: updatedUser.phone || undefined,
       photoUrl: updatedUser.photoUrl || undefined,
       role: updatedUser.role,
       nextOfKin: updatedUser.nextOfKin as any,
