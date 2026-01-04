@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { formatDateUK } from '@/lib/utils';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -49,13 +50,9 @@ export const Dashboard: React.FC = () => {
               <Icon name="account_balance_wallet" className="text-6xl text-primary" />
             </div>
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
-              <p className="text-slate-500 dark:text-slate-400 font-medium">Credit Balance</p>
               <div className="flex flex-col gap-1">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-primary text-3xl font-black tracking-tight">£1,250.00</span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [this month]</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [next month]</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [this month] e.g. January</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [next month] e.g. February</p>
               </div>
             </CardContent>
           </Card>
@@ -184,7 +181,7 @@ export const Dashboard: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     <TableRow>
-                      <TableCell>Oct 20, 2023</TableCell>
+                      <TableCell>{formatDateUK(new Date('2023-10-20'))}</TableCell>
                       <TableCell>Room Booking - Pimlico Room 1</TableCell>
                       <TableCell className="font-medium">-£25.00</TableCell>
                       <TableCell>
@@ -198,7 +195,7 @@ export const Dashboard: React.FC = () => {
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Oct 18, 2023</TableCell>
+                      <TableCell>{formatDateUK(new Date('2023-10-18'))}</TableCell>
                       <TableCell>Credit Top-up</TableCell>
                       <TableCell className="font-medium text-green-600 dark:text-green-400">+£100.00</TableCell>
                       <TableCell>
@@ -233,14 +230,14 @@ export const Dashboard: React.FC = () => {
                       <Icon name="verified" className="text-green-500" />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">Insurance</span>
                     </div>
-                    <Badge variant="success">Valid until 30.09.2026</Badge>
+                    <Badge variant="success" className="text-center">Valid until 30.09.2026</Badge>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Icon name="verified" className="text-green-500" />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">Registration</span>
                     </div>
-                    <Badge variant="success">Valid until 30.09.2026</Badge>
+                    <Badge variant="success" className="text-center">Valid until 30.09.2026</Badge>
                   </div>
                   <Button variant="outline" className="w-full">
                     <Icon name="upload" size={18} className="mr-2" />

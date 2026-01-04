@@ -32,7 +32,7 @@ export const Landing: React.FC = () => {
             <span className="text-primary">Room Booking App</span>
           </h1>
           <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto mb-8">
-            Book meeting and therapy rooms, manage documents, and handle your practice operations all in one place.
+            Book meeting rooms, manage documents and update your contact details.
           </p>
           <div className="flex justify-center gap-4 flex-wrap">
             <Link to="/signup">

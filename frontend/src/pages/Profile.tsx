@@ -347,7 +347,7 @@ export const Profile: React.FC = () => {
 
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      Insurance
+                      Professional Indemnity Insurance
                     </h3>
                     <div className="space-y-4">
                       <div className="space-y-2">
@@ -542,6 +542,9 @@ export const Profile: React.FC = () => {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="clinicalRegistrationFile">Clinical Registration Document</Label>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1 mb-2">
+                        For example, a scan of your valid UKCP, BACP and HCPC registration certificate
+                      </p>
                       <div className="flex items-center gap-2">
                         <Input
                           id="clinicalRegistrationFile"
