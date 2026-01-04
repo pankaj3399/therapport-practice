@@ -158,16 +158,16 @@ Week 2 focuses on completing the practitioner self-service dashboard with docume
 - Generate presigned PUT URL for R2 upload
 - Generate unique file path (e.g., `photos/{userId}/{timestamp}-{filename}`)
 - Return to frontend:
-  - Presigned URL for upload
-  - Final file path in R2
-  - Old photo path (if exists, for deletion after successful update)
+- Presigned URL for upload
+- Final file path in R2
+- Old photo path (if exists, for deletion after successful update)
 - Add `PUT /auth/profile/photo/confirm` endpoint to confirm upload and update database
 - Confirm endpoint flow:
 
-  1. Accept new file path from frontend
-  2. Update `users.photoUrl` in database with new R2 URL
-  3. If old photo path provided, delete old photo from R2
-  4. Return updated user data
+1. Accept new file path from frontend
+2. Update `users.photoUrl` in database with new R2 URL
+3. If old photo path provided, delete old photo from R2
+4. Return updated user data
 
 - Frontend calls confirm endpoint after successful R2 upload with new file path and old photo path (if exists)
 
@@ -177,10 +177,10 @@ Week 2 focuses on completing the practitioner self-service dashboard with docume
 - Add file input handler with preview
 - When file selected:
 
-  1. Call backend to get presigned URL (with file metadata)
-  2. Upload file directly to R2 using presigned URL (PUT request)
-  3. Call backend confirm endpoint with file path
-  4. Update avatar immediately after successful upload
+1. Call backend to get presigned URL (with file metadata)
+2. Upload file directly to R2 using presigned URL (PUT request)
+3. Call backend confirm endpoint with file path
+4. Update avatar immediately after successful upload
 
 - Show loading state during upload process
 - Handle upload errors gracefully
@@ -232,10 +232,10 @@ Week 2 focuses on completing the practitioner self-service dashboard with docume
 - Add expiry date picker with validation
 - Upload flow:
 
-  1. Get presigned URL from backend (with file metadata and expiry date)
-  2. Upload file directly to R2 using presigned URL
-  3. Call backend confirm endpoint with file path and expiry date
-  4. Update UI with uploaded document status
+1. Get presigned URL from backend (with file metadata and expiry date)
+2. Upload file directly to R2 using presigned URL
+3. Call backend confirm endpoint with file path and expiry date
+4. Update UI with uploaded document status
 
 - Show uploaded document status and expiry
 - Display warning if document is expired or expiring soon
@@ -296,20 +296,23 @@ Week 2 focuses on completing the practitioner self-service dashboard with docume
 - Create API endpoint `POST /api/admin/cron/process-reminders` with hybrid security approach
 - Security implementation (hybrid approach):
   ```typescript
-    // Accept requests from:
-    // 1. Vercel Cron Jobs (has x-vercel-signature header)
-    // 2. External services/Linux (has x-cron-secret header matching CRON_SECRET)
-    const vercelSignature = req.headers['x-vercel-signature'];
-    const providedSecret = req.headers['x-cron-secret'];
-    const expectedSecret = process.env.CRON_SECRET;
-    
-    const isVercelRequest = !!vercelSignature;
-    const hasValidSecret = providedSecret === expectedSecret;
-    
-    if (!isVercelRequest && !hasValidSecret) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+      // Accept requests from:
+      // 1. Vercel Cron Jobs (has x-vercel-signature header)
+      // 2. External services/Linux (has x-cron-secret header matching CRON_SECRET)
+      const vercelSignature = req.headers['x-vercel-signature'];
+      const providedSecret = req.headers['x-cron-secret'];
+      const expectedSecret = process.env.CRON_SECRET;
+      
+      const isVercelRequest = !!vercelSignature;
+      const hasValidSecret = providedSecret === expectedSecret;
+      
+      if (!isVercelRequest && !hasValidSecret) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
   ```
+
+
+
 
 - Create reminder processing function that can be called by cron
 - Query `emailNotifications` for pending reminders
@@ -477,8 +480,8 @@ Week 2 focuses on completing the practitioner self-service dashboard with docume
 - Cloudflare R2: `@aws-sdk/client-s3` (R2 is S3-compatible) - for generating presigned URLs
 - No multer needed - files upload directly from frontend to R2 using presigned URLs
 - Cron job solution: 
-  - `node-cron` for Linux server deployments
-  - API endpoint for Vercel (can be called by external cron service or Vercel Cron Jobs)
+- `node-cron` for Linux server deployments
+- API endpoint for Vercel (can be called by external cron service or Vercel Cron Jobs)
 
 ## Environment Variables
 
@@ -522,4 +525,3 @@ This will call the endpoint every hour. Vercel will include `x-vercel-signature`
 - ✅ Email reminders scheduled automatically on document upload
 - ✅ Reminders sent at expiry date, 2 weeks after, and 4 weeks after (admin)
 - ✅ Role-based access properly enforced
-- ✅ Admin can view practitioners and manage memberships (type and marketing add-on)

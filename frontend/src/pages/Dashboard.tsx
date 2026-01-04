@@ -1,15 +1,61 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
+import api from '@/services/api';
+
+interface DashboardData {
+  freeBookingHours: {
+    remaining: number;
+    totalAllocated: number;
+    totalUsed: number;
+    earliestExpiry: string | null;
+  };
+  credit: {
+    currentMonth: {
+      monthYear: string;
+      monthlyCredit: number;
+      usedCredit: number;
+      remainingCredit: number;
+    } | null;
+    nextMonth: {
+      monthYear: string;
+      monthlyCredit: number;
+    } | null;
+    membershipType: 'permanent' | 'ad_hoc' | null;
+  };
+  upcomingBookings: Array<{
+    id: string;
+    roomName: string;
+    locationName: string;
+    bookingDate: string;
+    startTime: string;
+    endTime: string;
+    totalPrice: number;
+    status: string;
+  }>;
+}
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+  const retryControllerRef = useRef<AbortController | null>(null);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -23,6 +69,208 @@ export const Dashboard: React.FC = () => {
     day: 'numeric',
   });
 
+  const fetchDashboardData = useCallback(async (signal?: AbortSignal) => {
+    try {
+      if (!isMountedRef.current) return;
+      setLoading(true);
+      setError(null);
+      const response = await api.get<{ success: boolean; data: DashboardData }>(
+        '/practitioner/dashboard',
+        {
+          signal,
+        }
+      );
+      if (!signal?.aborted && isMountedRef.current && response.data.success && response.data.data) {
+        setDashboardData(response.data.data);
+      }
+    } catch (err: unknown) {
+      // Don't set error if request was aborted or component unmounted
+      if (!signal?.aborted && isMountedRef.current) {
+        let errorMsg = 'Failed to load dashboard data';
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          'response' in err &&
+          typeof (err as { response?: unknown }).response === 'object' &&
+          (err as { response?: unknown }).response !== null
+        ) {
+          const response = (err as { response: { data?: { error?: unknown } } }).response;
+          if (
+            'data' in response &&
+            typeof response.data === 'object' &&
+            response.data !== null &&
+            'error' in response.data &&
+            typeof response.data.error === 'string'
+          ) {
+            errorMsg = response.data.error;
+          }
+        }
+        setError(errorMsg);
+      }
+    } finally {
+      if (!signal?.aborted && isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    isMountedRef.current = true;
+    const controller = new AbortController();
+    fetchDashboardData(controller.signal);
+
+    return () => {
+      isMountedRef.current = false;
+      controller.abort();
+      // Abort any in-flight retry request
+      if (retryControllerRef.current) {
+        retryControllerRef.current.abort();
+        retryControllerRef.current = null;
+      }
+    };
+  }, [user, fetchDashboardData]);
+
+  const formatMonthYear = (monthYear: string): string => {
+    // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
+    if (
+      !monthYear ||
+      typeof monthYear !== 'string' ||
+      !/^\d{4}-\d{2}(?:-\d{2})?$/.test(monthYear)
+    ) {
+      return '';
+    }
+
+    // Extract only year and month parts (first 7 characters: YYYY-MM)
+    const yearMonthStr = monthYear.substring(0, 7);
+    const [yearStr, monthStr] = yearMonthStr.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+
+    // Verify parsed numbers are finite
+    if (!Number.isFinite(year) || !Number.isFinite(month)) {
+      return '';
+    }
+
+    // Validate date is valid (not NaN)
+    const date = new Date(year, month - 1, 1);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+
+    return date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  };
+
+  const formatExpiryDate = (dateStr: string | null): string => {
+    if (!dateStr) return '';
+
+    try {
+      const date = new Date(dateStr);
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch {
+      return '';
+    }
+  };
+
+  const formatTime = (timeStr: string): string => {
+    // Guard against falsy or non-string inputs
+    if (!timeStr || typeof timeStr !== 'string') {
+      return '';
+    }
+
+    // Split and trim the input
+    const parts = timeStr.split(':').map((part) => part.trim());
+
+    // Ensure we have at least hours, default minutes to "00" if missing
+    if (parts.length === 0) {
+      return '';
+    }
+
+    const hoursStr = parts[0] || '';
+    const minutesStr = parts[1] || '00';
+
+    // Validate parseInt results
+    const hour = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10);
+
+    if (isNaN(hour) || isNaN(minutes)) {
+      return '';
+    }
+
+    // Validate ranges: hour must be 0-23, minutes must be 0-59
+    if (hour < 0 || hour > 23 || minutes < 0 || minutes > 59) {
+      return '';
+    }
+
+    // Compute AM/PM and displayHour using validated numeric values
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  };
+
+  const formatBookingDate = (dateStr: string): string => {
+    const date = new Date(dateStr);
+
+    // Validate date is valid
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const bookingDate = new Date(date);
+    bookingDate.setHours(0, 0, 0, 0);
+
+    if (bookingDate.getTime() === today.getTime()) {
+      return 'Today';
+    }
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (bookingDate.getTime() === tomorrow.getTime()) {
+      return 'Tomorrow';
+    }
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500 dark:text-slate-400">Loading dashboard...</p>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  const handleRetry = () => {
+    // Abort any previous retry request
+    if (retryControllerRef.current) {
+      retryControllerRef.current.abort();
+    }
+    // Create a new AbortController for this retry
+    const controller = new AbortController();
+    retryControllerRef.current = controller;
+    fetchDashboardData(controller.signal);
+  };
+
+  if (error) {
+    return (
+      <MainLayout>
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <p className="text-red-500">{error}</p>
+          <Button onClick={handleRetry} disabled={loading} variant="outline">
+            {loading ? 'Retrying...' : 'Retry'}
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
+
   return (
     <MainLayout>
       <div className="space-y-8">
@@ -33,7 +281,8 @@ export const Dashboard: React.FC = () => {
               Welcome back, {user?.firstName}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 text-base font-normal">
-              Here is your overview for <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
+              Here is your overview for{' '}
+              <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
             </p>
           </div>
           <Button>
@@ -50,10 +299,35 @@ export const Dashboard: React.FC = () => {
               <Icon name="account_balance_wallet" className="text-6xl text-primary" />
             </div>
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
-              <div className="flex flex-col gap-1">
-                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [this month] e.g. January</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [next month] e.g. February</p>
-              </div>
+              <p className="text-slate-500 dark:text-slate-400 font-medium">Credit Balance</p>
+              {dashboardData?.credit.currentMonth ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-slate-900 dark:text-white text-3xl font-black tracking-tight">
+                      £{dashboardData.credit.currentMonth.remainingCredit.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatMonthYear(dashboardData.credit.currentMonth.monthYear)} • Used: £
+                    {dashboardData.credit.currentMonth.usedCredit.toFixed(2)} / £
+                    {dashboardData.credit.currentMonth.monthlyCredit.toFixed(2)}
+                  </p>
+                  {dashboardData.credit.nextMonth && (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                      Next month: £{dashboardData.credit.nextMonth.monthlyCredit.toFixed(2)}{' '}
+                      available
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {dashboardData?.credit.membershipType === 'permanent'
+                      ? 'Permanent membership'
+                      : 'No credit balance'}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -65,10 +339,20 @@ export const Dashboard: React.FC = () => {
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
               <p className="text-slate-500 dark:text-slate-400 font-medium">Free Booking Hours</p>
               <div className="flex items-baseline gap-1">
-                <span className="text-slate-900 dark:text-white text-4xl font-black tracking-tight">4.5</span>
+                <span className="text-slate-900 dark:text-white text-4xl font-black tracking-tight">
+                  {dashboardData?.freeBookingHours.remaining.toFixed(1) || '0.0'}
+                </span>
                 <span className="text-slate-500 font-bold">Hours</span>
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Resets on Nov 1st</p>
+              {dashboardData?.freeBookingHours.earliestExpiry ? (
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                  Expires: {formatExpiryDate(dashboardData.freeBookingHours.earliestExpiry)}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                  No active vouchers
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -91,7 +375,9 @@ export const Dashboard: React.FC = () => {
                   <div>
                     <p className="text-slate-900 dark:text-white font-bold text-lg">Signed In</p>
                     <p className="text-slate-500 dark:text-slate-400 text-sm">Pimlico Tablet</p>
-                    <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">Check-in: 09:00 AM</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">
+                      Check-in: 09:00 AM
+                    </p>
                   </div>
                 </div>
                 <Button variant="destructive" size="sm" className="mt-2 w-full">
@@ -130,28 +416,33 @@ export const Dashboard: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    <TableRow>
-                      <TableCell className="font-medium">Pimlico Room 1</TableCell>
-                      <TableCell>Today</TableCell>
-                      <TableCell>11:00 AM</TableCell>
-                      <TableCell>12:00 PM</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
-                          <Icon name="cancel" size={18} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">Kensington Room 3</TableCell>
-                      <TableCell>Tomorrow</TableCell>
-                      <TableCell>2:00 PM</TableCell>
-                      <TableCell>3:30 PM</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
-                          <Icon name="cancel" size={18} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                    {dashboardData?.upcomingBookings &&
+                    dashboardData.upcomingBookings.length > 0 ? (
+                      dashboardData.upcomingBookings.map((booking) => (
+                        <TableRow key={booking.id}>
+                          <TableCell className="font-medium">
+                            {booking.roomName} ({booking.locationName})
+                          </TableCell>
+                          <TableCell>{formatBookingDate(booking.bookingDate)}</TableCell>
+                          <TableCell>{formatTime(booking.startTime)}</TableCell>
+                          <TableCell>{formatTime(booking.endTime)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm">
+                              <Icon name="cancel" size={18} />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="text-center text-slate-500 dark:text-slate-400 py-8"
+                        >
+                          No upcoming bookings
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -197,7 +488,9 @@ export const Dashboard: React.FC = () => {
                     <TableRow>
                       <TableCell>{formatDateUK(new Date('2023-10-18'))}</TableCell>
                       <TableCell>Credit Top-up</TableCell>
-                      <TableCell className="font-medium text-green-600 dark:text-green-400">+£100.00</TableCell>
+                      <TableCell className="font-medium text-green-600 dark:text-green-400">
+                        +£100.00
+                      </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" disabled>
                           <Icon name="download" size={16} className="mr-1" />
@@ -228,16 +521,24 @@ export const Dashboard: React.FC = () => {
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Icon name="verified" className="text-green-500" />
-                      <span className="text-sm font-medium text-slate-900 dark:text-white">Insurance</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-white">
+                        Insurance
+                      </span>
                     </div>
-                    <Badge variant="success" className="text-center">Valid until 30.09.2026</Badge>
+                    <Badge variant="success" className="text-center">
+                      Valid until 30.09.2026
+                    </Badge>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Icon name="verified" className="text-green-500" />
-                      <span className="text-sm font-medium text-slate-900 dark:text-white">Registration</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-white">
+                        Registration
+                      </span>
                     </div>
-                    <Badge variant="success" className="text-center">Valid until 30.09.2026</Badge>
+                    <Badge variant="success" className="text-center">
+                      Valid until 30.09.2026
+                    </Badge>
                   </div>
                   <Button variant="outline" className="w-full">
                     <Icon name="upload" size={18} className="mr-2" />
