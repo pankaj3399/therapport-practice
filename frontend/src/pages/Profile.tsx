@@ -63,6 +63,7 @@ export const Profile: React.FC = () => {
   // Photo Upload
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getInitials = (firstName?: string, lastName?: string) => {
@@ -87,18 +88,37 @@ export const Profile: React.FC = () => {
       return;
     }
 
-    // Create preview
+    // Create preview and save file for confirmation
     const reader = new FileReader();
     reader.onloadend = () => {
       setPhotoPreview(reader.result as string);
+      setSelectedPhoto(file);
     };
     reader.readAsDataURL(file);
-
-    // Upload photo
-    handlePhotoUpload(file);
   };
 
-  const handlePhotoUpload = async (file: File) => {
+  const handlePhotoCancel = () => {
+    setPhotoPreview(null);
+    setSelectedPhoto(null);
+    setMessage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePhotoUpload = async (file: File | null) => {
+    // Guard against concurrent uploads
+    if (photoUploading) {
+      return;
+    }
+
+    // Validate file is selected
+    if (!file) {
+      setMessage({ type: 'error', text: 'No file selected' });
+      return;
+    }
+
+    // Set uploading state synchronously before any awaits
     setPhotoUploading(true);
     setMessage(null);
 
@@ -140,6 +160,7 @@ export const Profile: React.FC = () => {
         updateUser(confirmResponse.data.data);
         setMessage({ type: 'success', text: 'Photo uploaded successfully' });
         setPhotoPreview(null);
+        setSelectedPhoto(null);
         // Clear file input
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
@@ -151,7 +172,7 @@ export const Profile: React.FC = () => {
         type: 'error',
         text: error.response?.data?.error || error.message || 'Failed to upload photo',
       });
-      setPhotoPreview(null);
+      // Don't clear preview on error - let user retry or cancel
     } finally {
       setPhotoUploading(false);
     }
@@ -331,15 +352,38 @@ export const Profile: React.FC = () => {
                       id="photo-upload"
                       disabled={photoUploading}
                     />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={photoUploading}
-                    >
-                      <Icon name="photo_camera" size={18} className="mr-2" />
-                      {photoUploading ? 'Uploading...' : 'Upload Photo'}
-                    </Button>
+                    {photoPreview ? (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handlePhotoUpload(selectedPhoto)}
+                          disabled={photoUploading || !selectedPhoto}
+                        >
+                          <Icon name="check" size={18} className="mr-2" />
+                          {photoUploading ? 'Uploading...' : 'Confirm Upload'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handlePhotoCancel}
+                          disabled={photoUploading}
+                        >
+                          <Icon name="close" size={18} className="mr-2" />
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={photoUploading}
+                      >
+                        <Icon name="photo_camera" size={18} className="mr-2" />
+                        Upload Photo
+                      </Button>
+                    )}
                   </div>
                 </div>
 

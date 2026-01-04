@@ -107,6 +107,10 @@ export class FileService {
     contentType: string,
     expiresIn: number = 300 // 5 minutes default
   ): Promise<PresignedUploadUrlResponse> {
+    if (!R2_BUCKET_NAME) {
+      throw new Error('R2_BUCKET_NAME environment variable is required');
+    }
+
     const command = new PutObjectCommand({
       Bucket: R2_BUCKET_NAME,
       Key: filePath,
@@ -123,12 +127,16 @@ export class FileService {
 
   /**
    * Generate presigned URL for file download/viewing (GET)
-   * Photos get longer expiry (1 year), documents get shorter (1 hour)
+   * Photos get longer expiry (7 days - S3/R2 maximum), documents get shorter (1 hour)
    */
   static async generatePresignedGetUrl(
     filePath: string,
     category: 'photos' | 'documents'
   ): Promise<string> {
+    if (!R2_BUCKET_NAME) {
+      throw new Error('R2_BUCKET_NAME environment variable is required');
+    }
+
     const command = new GetObjectCommand({
       Bucket: R2_BUCKET_NAME,
       Key: filePath,
