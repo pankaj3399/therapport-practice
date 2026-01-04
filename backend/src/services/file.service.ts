@@ -147,12 +147,9 @@ export class FileService {
    * Delete file from R2
    */
   static async deleteFile(filePath: string): Promise<void> {
-    // filePath should be the key, not a URL
-    const key = filePath;
-
     const command = new DeleteObjectCommand({
       Bucket: R2_BUCKET_NAME,
-      Key: key,
+      Key: filePath, // filePath should be the key, not a URL
     });
 
     await r2Client.send(command);
