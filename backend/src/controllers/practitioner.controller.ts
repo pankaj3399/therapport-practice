@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { bookings, rooms, locations, memberships } from '../db/schema';
+import { bookings, rooms, locations } from '../db/schema';
 import { eq, and, gte, asc } from 'drizzle-orm';
 import { VoucherService } from '../services/voucher.service';
 import { CreditService } from '../services/credit.service';
@@ -23,8 +23,8 @@ export class PractitionerController {
       const creditSummary = await CreditService.getCreditBalance(userId);
 
       // Get upcoming bookings (confirmed, not cancelled, in the future)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const todayUtc = new Date();
+      todayUtc.setUTCHours(0, 0, 0, 0);
 
       // Get upcoming bookings with room and location info
       const upcomingBookingsData = await db
@@ -40,7 +40,7 @@ export class PractitionerController {
           and(
             eq(bookings.userId, userId),
             eq(bookings.status, 'confirmed'),
-            gte(bookings.bookingDate, today.toISOString().split('T')[0])
+            gte(bookings.bookingDate, todayUtc.toISOString().split('T')[0])
           )
         )
         .orderBy(asc(bookings.bookingDate), asc(bookings.startTime))
@@ -71,17 +71,35 @@ export class PractitionerController {
           upcomingBookings: formattedBookings,
         },
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      // Normalize error for logging
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
+      // Safely stringify error for logging if it's not an Error instance
+      let errorDetails: string;
+      if (error instanceof Error) {
+        errorDetails = errorMessage;
+      } else {
+        try {
+          errorDetails = JSON.stringify(error);
+        } catch {
+          errorDetails = String(error);
+        }
+      }
+
       logger.error(
         'Failed to get dashboard data',
-        error,
+        error instanceof Error ? error : new Error(errorDetails),
         {
           userId: req.user?.id,
           method: req.method,
           url: req.originalUrl,
+          errorDetails: errorDetails,
+          errorStack: errorStack,
         }
       );
-      res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+      res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }
 }

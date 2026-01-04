@@ -1,6 +1,9 @@
 import { db } from '../config/database';
 import { creditLedgers, memberships } from '../db/schema';
 import { eq, and, sql } from 'drizzle-orm';
+import { formatMonthYear } from '../utils/date.util';
+
+const DEFAULT_MONTHLY_CREDIT = 105.00;
 
 export interface CreditSummary {
   currentMonth: {
@@ -41,13 +44,11 @@ export class CreditService {
     const currentMonth = now.getMonth() + 1; // 1-12
 
     // Format: YYYY-MM-DD (first day of month)
-    const currentMonthStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+    const currentMonthStr = formatMonthYear(new Date(currentYear, currentMonth - 1, 1));
     
     // Calculate next month
     const nextMonthDate = new Date(currentYear, currentMonth, 1);
-    const nextYear = nextMonthDate.getFullYear();
-    const nextMonth = nextMonthDate.getMonth() + 1;
-    const nextMonthStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const nextMonthStr = formatMonthYear(nextMonthDate);
 
     // Get current month's credit ledger
     const currentLedger = await db.query.creditLedgers.findFirst({
@@ -68,7 +69,7 @@ export class CreditService {
     // If next month doesn't exist yet, we'll show the default credit amount
     const nextMonthCredit = nextLedger
       ? parseFloat(nextLedger.monthlyCredit.toString())
-      : 105.00; // Default monthly credit for ad-hoc members
+      : DEFAULT_MONTHLY_CREDIT;
 
     const currentMonthData = currentLedger
       ? {
@@ -79,9 +80,9 @@ export class CreditService {
         }
       : {
           monthYear: currentMonthStr,
-          monthlyCredit: 105.00, // Default if not created yet
+          monthlyCredit: DEFAULT_MONTHLY_CREDIT,
           usedCredit: 0,
-          remainingCredit: 105.00,
+          remainingCredit: DEFAULT_MONTHLY_CREDIT,
         };
 
     return {

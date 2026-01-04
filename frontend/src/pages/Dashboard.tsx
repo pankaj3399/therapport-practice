@@ -1,9 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -47,6 +54,7 @@ export const Dashboard: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -60,49 +68,123 @@ export const Dashboard: React.FC = () => {
     day: 'numeric',
   });
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-        const response = await api.get<{ success: boolean; data: DashboardData }>('/practitioner/dashboard');
-        if (response.data.success && response.data.data) {
-          setDashboardData(response.data.data);
+  const fetchDashboardData = async (signal?: AbortSignal) => {
+    try {
+      if (!isMountedRef.current) return;
+      setLoading(true);
+      setError(null);
+      const response = await api.get<{ success: boolean; data: DashboardData }>(
+        '/practitioner/dashboard',
+        {
+          signal,
         }
-      } catch (err: any) {
+      );
+      if (!signal?.aborted && isMountedRef.current && response.data.success && response.data.data) {
+        setDashboardData(response.data.data);
+      }
+    } catch (err: any) {
+      // Don't set error if request was aborted or component unmounted
+      if (!signal?.aborted && isMountedRef.current) {
         setError(err.response?.data?.error || 'Failed to load dashboard data');
-      } finally {
+      }
+    } finally {
+      if (!signal?.aborted && isMountedRef.current) {
         setLoading(false);
       }
-    };
-
-    if (user) {
-      fetchDashboardData();
     }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+
+    isMountedRef.current = true;
+    const controller = new AbortController();
+    fetchDashboardData(controller.signal);
+
+    return () => {
+      isMountedRef.current = false;
+      controller.abort();
+    };
   }, [user]);
 
   const formatMonthYear = (monthYear: string): string => {
-    const [year, month] = monthYear.split('-');
-    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+    // Validate input: non-empty string matching YYYY-MM format
+    if (!monthYear || typeof monthYear !== 'string' || !/^\d{4}-\d{2}$/.test(monthYear)) {
+      return '';
+    }
+
+    const [yearStr, monthStr] = monthYear.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+
+    // Verify parsed numbers are finite
+    if (!Number.isFinite(year) || !Number.isFinite(month)) {
+      return '';
+    }
+
+    // Validate date is valid (not NaN)
+    const date = new Date(year, month - 1, 1);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+
     return date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   };
 
   const formatExpiryDate = (dateStr: string | null): string => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+    try {
+      const date = new Date(dateStr);
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch {
+      return '';
+    }
   };
 
   const formatTime = (timeStr: string): string => {
-    // timeStr is in format "HH:MM:SS" or "HH:MM"
-    const [hours, minutes] = timeStr.split(':');
-    const hour = parseInt(hours);
+    // Guard against falsy or non-string inputs
+    if (!timeStr || typeof timeStr !== 'string') {
+      return '';
+    }
+
+    // Split and trim the input
+    const parts = timeStr.split(':').map((part) => part.trim());
+
+    // Ensure we have at least hours, default minutes to "00" if missing
+    if (parts.length === 0) {
+      return '';
+    }
+
+    const hoursStr = parts[0] || '';
+    const minutesStr = parts[1] || '00';
+
+    // Validate parseInt results
+    const hour = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10);
+
+    if (isNaN(hour) || isNaN(minutes)) {
+      return '';
+    }
+
+    // Compute AM/PM and displayHour using validated numeric values
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
+    return `${displayHour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
   };
 
   const formatBookingDate = (dateStr: string): string => {
     const date = new Date(dateStr);
+
+    // Validate date is valid
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const bookingDate = new Date(date);
@@ -132,8 +214,11 @@ export const Dashboard: React.FC = () => {
   if (error) {
     return (
       <MainLayout>
-        <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
           <p className="text-red-500">{error}</p>
+          <Button onClick={() => fetchDashboardData()} disabled={loading} variant="outline">
+            {loading ? 'Retrying...' : 'Retry'}
+          </Button>
         </div>
       </MainLayout>
     );
@@ -149,7 +234,8 @@ export const Dashboard: React.FC = () => {
               Welcome back, {user?.firstName}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 text-base font-normal">
-              Here is your overview for <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
+              Here is your overview for{' '}
+              <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
             </p>
           </div>
           <Button>
@@ -181,7 +267,8 @@ export const Dashboard: React.FC = () => {
                   </p>
                   {dashboardData.credit.nextMonth && (
                     <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                      Next month: £{dashboardData.credit.nextMonth.monthlyCredit.toFixed(2)} available
+                      Next month: £{dashboardData.credit.nextMonth.monthlyCredit.toFixed(2)}{' '}
+                      available
                     </p>
                   )}
                 </div>
@@ -215,7 +302,9 @@ export const Dashboard: React.FC = () => {
                   Expires: {formatExpiryDate(dashboardData.freeBookingHours.earliestExpiry)}
                 </p>
               ) : (
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">No active vouchers</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                  No active vouchers
+                </p>
               )}
             </CardContent>
           </Card>
@@ -239,7 +328,9 @@ export const Dashboard: React.FC = () => {
                   <div>
                     <p className="text-slate-900 dark:text-white font-bold text-lg">Signed In</p>
                     <p className="text-slate-500 dark:text-slate-400 text-sm">Pimlico Tablet</p>
-                    <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">Check-in: 09:00 AM</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">
+                      Check-in: 09:00 AM
+                    </p>
                   </div>
                 </div>
                 <Button variant="destructive" size="sm" className="mt-2 w-full">
@@ -278,7 +369,8 @@ export const Dashboard: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {dashboardData?.upcomingBookings && dashboardData.upcomingBookings.length > 0 ? (
+                    {dashboardData?.upcomingBookings &&
+                    dashboardData.upcomingBookings.length > 0 ? (
                       dashboardData.upcomingBookings.map((booking) => (
                         <TableRow key={booking.id}>
                           <TableCell className="font-medium">
@@ -296,7 +388,10 @@ export const Dashboard: React.FC = () => {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-slate-500 dark:text-slate-400 py-8">
+                        <TableCell
+                          colSpan={5}
+                          className="text-center text-slate-500 dark:text-slate-400 py-8"
+                        >
                           No upcoming bookings
                         </TableCell>
                       </TableRow>
@@ -346,7 +441,9 @@ export const Dashboard: React.FC = () => {
                     <TableRow>
                       <TableCell>{formatDateUK(new Date('2023-10-18'))}</TableCell>
                       <TableCell>Credit Top-up</TableCell>
-                      <TableCell className="font-medium text-green-600 dark:text-green-400">+£100.00</TableCell>
+                      <TableCell className="font-medium text-green-600 dark:text-green-400">
+                        +£100.00
+                      </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" disabled>
                           <Icon name="download" size={16} className="mr-1" />
@@ -377,16 +474,24 @@ export const Dashboard: React.FC = () => {
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Icon name="verified" className="text-green-500" />
-                      <span className="text-sm font-medium text-slate-900 dark:text-white">Insurance</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-white">
+                        Insurance
+                      </span>
                     </div>
-                    <Badge variant="success" className="text-center">Valid until 30.09.2026</Badge>
+                    <Badge variant="success" className="text-center">
+                      Valid until 30.09.2026
+                    </Badge>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Icon name="verified" className="text-green-500" />
-                      <span className="text-sm font-medium text-slate-900 dark:text-white">Registration</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-white">
+                        Registration
+                      </span>
                     </div>
-                    <Badge variant="success" className="text-center">Valid until 30.09.2026</Badge>
+                    <Badge variant="success" className="text-center">
+                      Valid until 30.09.2026
+                    </Badge>
                   </div>
                   <Button variant="outline" className="w-full">
                     <Icon name="upload" size={18} className="mr-2" />

@@ -59,10 +59,11 @@ export class VoucherService {
 
     // Get the earliest expiry date for display
     const earliestExpiry = vouchers.length > 0
-      ? vouchers.reduce((earliest, voucher) => 
-          voucher.expiryDate < earliest ? voucher.expiryDate : earliest,
-          vouchers[0].expiryDate
-        )
+      ? (() => {
+          const timestamps = vouchers.map(v => new Date(v.expiryDate).getTime());
+          const minTimestamp = Math.min(...timestamps);
+          return new Date(minTimestamp).toISOString().split('T')[0];
+        })()
       : null;
 
     return {
