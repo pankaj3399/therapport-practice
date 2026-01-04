@@ -58,13 +58,14 @@ export class VoucherService {
     const totalRemaining = Math.max(0, totalHoursAllocated - totalHoursUsed);
 
     // Get the earliest expiry date for display
-    const earliestExpiry = vouchers.length > 0
-      ? (() => {
-          const timestamps = vouchers.map(v => new Date(v.expiryDate).getTime());
-          const minTimestamp = Math.min(...timestamps);
-          return new Date(minTimestamp).toISOString().split('T')[0];
-        })()
-      : null;
+    // Compare expiryDate strings lexicographically (ISO YYYY-MM-DD format compares correctly as strings)
+    const earliestExpiry = vouchers.reduce<string | null>((min, voucher) => {
+      const expiryDate = voucher.expiryDate;
+      if (!expiryDate || typeof expiryDate !== 'string' || expiryDate.trim() === '') {
+        return min;
+      }
+      return min === null || expiryDate < min ? expiryDate : min;
+    }, null);
 
     return {
       totalHoursAllocated,
@@ -75,4 +76,3 @@ export class VoucherService {
     };
   }
 }
-

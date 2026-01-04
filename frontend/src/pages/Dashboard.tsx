@@ -82,10 +82,29 @@ export const Dashboard: React.FC = () => {
       if (!signal?.aborted && isMountedRef.current && response.data.success && response.data.data) {
         setDashboardData(response.data.data);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Don't set error if request was aborted or component unmounted
       if (!signal?.aborted && isMountedRef.current) {
-        setError(err.response?.data?.error || 'Failed to load dashboard data');
+        let errorMsg = 'Failed to load dashboard data';
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          'response' in err &&
+          typeof (err as { response?: unknown }).response === 'object' &&
+          (err as { response?: unknown }).response !== null
+        ) {
+          const response = (err as { response: { data?: { error?: unknown } } }).response;
+          if (
+            'data' in response &&
+            typeof response.data === 'object' &&
+            response.data !== null &&
+            'error' in response.data &&
+            typeof response.data.error === 'string'
+          ) {
+            errorMsg = response.data.error;
+          }
+        }
+        setError(errorMsg);
       }
     } finally {
       if (!signal?.aborted && isMountedRef.current) {
@@ -108,12 +127,18 @@ export const Dashboard: React.FC = () => {
   }, [user]);
 
   const formatMonthYear = (monthYear: string): string => {
-    // Validate input: non-empty string matching YYYY-MM format
-    if (!monthYear || typeof monthYear !== 'string' || !/^\d{4}-\d{2}$/.test(monthYear)) {
+    // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
+    if (
+      !monthYear ||
+      typeof monthYear !== 'string' ||
+      !/^\d{4}-\d{2}(?:-\d{2})?$/.test(monthYear)
+    ) {
       return '';
     }
 
-    const [yearStr, monthStr] = monthYear.split('-');
+    // Extract only year and month parts (first 7 characters: YYYY-MM)
+    const yearMonthStr = monthYear.substring(0, 7);
+    const [yearStr, monthStr] = yearMonthStr.split('-');
     const year = parseInt(yearStr, 10);
     const month = parseInt(monthStr, 10);
 

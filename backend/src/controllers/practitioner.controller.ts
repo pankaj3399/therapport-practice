@@ -73,24 +73,26 @@ export class PractitionerController {
       });
     } catch (error: unknown) {
       // Normalize error for logging
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
+      const isError = error instanceof Error;
+      const errorMessage = isError ? error.message : String(error);
+      const errorStack = isError ? error.stack : undefined;
       
-      // Safely stringify error for logging if it's not an Error instance
-      let errorDetails: string;
-      if (error instanceof Error) {
-        errorDetails = errorMessage;
-      } else {
-        try {
-          errorDetails = JSON.stringify(error);
-        } catch {
-          errorDetails = String(error);
-        }
-      }
+      // Set errorDetails once: use errorMessage for Error instances, otherwise stringify
+      const errorDetails: string = isError
+        ? errorMessage
+        : (() => {
+            try {
+              return JSON.stringify(error);
+            } catch {
+              return String(error);
+            }
+          })();
+
+      const errorForLogger = isError ? error : new Error(errorDetails);
 
       logger.error(
         'Failed to get dashboard data',
-        error instanceof Error ? error : new Error(errorDetails),
+        errorForLogger,
         {
           userId: req.user?.id,
           method: req.method,

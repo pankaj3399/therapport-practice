@@ -3,7 +3,7 @@ import { creditLedgers, memberships } from '../db/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { formatMonthYear } from '../utils/date.util';
 
-const DEFAULT_MONTHLY_CREDIT = 105.00;
+const DEFAULT_MONTHLY_CREDIT = 105.0;
 
 export interface CreditSummary {
   currentMonth: {
@@ -40,30 +40,25 @@ export class CreditService {
     }
 
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-12
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth() + 1; // 1-12
 
-    // Format: YYYY-MM-DD (first day of month)
-    const currentMonthStr = formatMonthYear(new Date(currentYear, currentMonth - 1, 1));
-    
-    // Calculate next month
-    const nextMonthDate = new Date(currentYear, currentMonth, 1);
+    // Format: YYYY-MM-DD (first day of month in UTC)
+    // Use Date.UTC to create dates in UTC timezone
+    const currentMonthStr = formatMonthYear(new Date(Date.UTC(currentYear, currentMonth - 1, 1)));
+
+    // Calculate next month in UTC
+    const nextMonthDate = new Date(Date.UTC(currentYear, currentMonth, 1));
     const nextMonthStr = formatMonthYear(nextMonthDate);
 
     // Get current month's credit ledger
     const currentLedger = await db.query.creditLedgers.findFirst({
-      where: and(
-        eq(creditLedgers.userId, userId),
-        eq(creditLedgers.monthYear, currentMonthStr)
-      ),
+      where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, currentMonthStr)),
     });
 
     // Get or create next month's credit ledger (for display)
     let nextLedger = await db.query.creditLedgers.findFirst({
-      where: and(
-        eq(creditLedgers.userId, userId),
-        eq(creditLedgers.monthYear, nextMonthStr)
-      ),
+      where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, nextMonthStr)),
     });
 
     // If next month doesn't exist yet, we'll show the default credit amount
@@ -95,4 +90,3 @@ export class CreditService {
     };
   }
 }
-
