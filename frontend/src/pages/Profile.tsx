@@ -371,11 +371,7 @@ export const Profile: React.FC = () => {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="insuranceExpiry">Insurance Document Expiry Date</Label>
-                        <Input
-                          id="insuranceExpiry"
-                          type="date"
-                          disabled
-                        />
+                        <Input id="insuranceExpiry" type="date" disabled />
                         <p className="text-xs text-slate-500 dark:text-slate-400">
                           Document upload functionality will be available in Week 2
                         </p>
@@ -535,15 +531,20 @@ export const Profile: React.FC = () => {
                   <Icon name="description" className="text-primary" />
                   Clinical Requirements
                 </CardTitle>
-                <CardDescription>Upload and manage your clinical registration documents and executor information</CardDescription>
+                <CardDescription>
+                  Upload and manage your clinical registration documents and executor information
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="clinicalRegistrationFile">Clinical Registration Document</Label>
+                      <Label htmlFor="clinicalRegistrationFile">
+                        Clinical Registration Document
+                      </Label>
                       <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1 mb-2">
-                        For example, a scan of your valid UKCP, BACP and HCPC registration certificate
+                        For example, a scan of your valid UKCP, BACP and HCPC registration
+                        certificate
                       </p>
                       <div className="flex items-center gap-2">
                         <Input
@@ -563,12 +564,10 @@ export const Profile: React.FC = () => {
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="clinicalRegistrationExpiry">Clinical Registration Document Expiry Date</Label>
-                      <Input
-                        id="clinicalRegistrationExpiry"
-                        type="date"
-                        disabled
-                      />
+                      <Label htmlFor="clinicalRegistrationExpiry">
+                        Clinical Registration Document Expiry Date
+                      </Label>
+                      <Input id="clinicalRegistrationExpiry" type="date" disabled />
                     </div>
                   </div>
 
@@ -580,17 +579,16 @@ export const Profile: React.FC = () => {
                         Clinical Executor Information
                       </h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                        A clinical executor is the person appointed by a therapist to carry out their professional and ethical responsibilities—such as safeguarding clients, managing clinical records, and closing or transferring a practice—if the therapist dies or becomes incapacitated.
+                        A clinical executor is the person appointed by a therapist to carry out
+                        their professional and ethical responsibilities—such as safeguarding
+                        clients, managing clinical records, and closing or transferring a
+                        practice—if the therapist dies or becomes incapacitated.
                       </p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="executorName">Name</Label>
-                        <Input
-                          id="executorName"
-                          placeholder="John Doe"
-                          disabled
-                        />
+                        <Input id="executorName" placeholder="John Doe" disabled />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="executorEmail">Email</Label>
