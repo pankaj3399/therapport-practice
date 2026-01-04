@@ -48,6 +48,17 @@ const updateProfileSchema = z.object({
     .optional(),
 });
 
+const photoUploadUrlSchema = z.object({
+  filename: z.string().min(1),
+  fileType: z.string().min(1),
+  fileSize: z.number().positive(),
+});
+
+const photoConfirmSchema = z.object({
+  filePath: z.string().min(1),
+  oldPhotoPath: z.string().optional(),
+});
+
 router.post('/register', validate(registerSchema), authController.register.bind(authController));
 router.post('/login', validate(loginSchema), authController.login.bind(authController));
 router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword.bind(authController));
@@ -58,6 +69,9 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), au
 router.put('/profile', authenticate, validate(updateProfileSchema), authController.updateProfile.bind(authController));
 router.post('/refresh', authController.refreshToken.bind(authController));
 router.get('/me', authenticate, authController.getCurrentUser.bind(authController));
+router.post('/profile/photo/upload-url', authenticate, validate(photoUploadUrlSchema), authController.getPhotoUploadUrl.bind(authController));
+router.put('/profile/photo/confirm', authenticate, validate(photoConfirmSchema), authController.confirmPhotoUpload.bind(authController));
+router.get('/profile/photo', authenticate, authController.getPhotoUrl.bind(authController));
 
 export default router;
 

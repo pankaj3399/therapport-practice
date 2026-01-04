@@ -23,6 +23,19 @@ PORT=3000
 
 # Admin Password (for seed script)
 ADMIN_PASSWORD=admin123
+
+# Cloudflare R2 Configuration (for file storage)
+# Note: Bucket should be kept PRIVATE - we use presigned URLs for access
+# You need to create S3 API credentials (not R2_TOKEN) in Cloudflare Dashboard:
+# R2 → Manage API Tokens → Create S3 API Token
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+R2_BUCKET_NAME=your-bucket-name
+# R2_PUBLIC_URL is no longer needed - we use presigned URLs instead
+
+# Cron Secret (for scheduled jobs)
+CRON_SECRET=your-cron-secret-token-change-in-production
 ```
 
 ## Gmail App Password Setup

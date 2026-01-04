@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
+import { FileService } from '../services/file.service';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.middleware';
+import { db } from '../config/database';
+import { users } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 const registerSchema = z.object({
   firstName: z.string().min(1).max(100),
@@ -44,6 +48,17 @@ const updateProfileSchema = z.object({
       phone: z.string().optional(),
     })
     .optional(),
+});
+
+const photoUploadUrlSchema = z.object({
+  filename: z.string().min(1),
+  fileType: z.string().min(1),
+  fileSize: z.number().positive(),
+});
+
+const photoConfirmSchema = z.object({
+  filePath: z.string().min(1),
+  oldPhotoPath: z.string().optional(),
 });
 
 export class AuthController {
@@ -140,6 +155,16 @@ export class AuthController {
         return res.status(404).json({ success: false, error: 'User not found' });
       }
 
+      // Generate presigned URL for photo if exists
+      let photoUrl: string | undefined = undefined;
+      if (user.photoUrl) {
+        try {
+          photoUrl = await FileService.generatePresignedGetUrl(user.photoUrl, 'photos');
+        } catch (error) {
+          console.error('Failed to generate photo URL:', error);
+        }
+      }
+
       res.status(200).json({
         success: true,
         data: {
@@ -148,7 +173,7 @@ export class AuthController {
           firstName: user.firstName,
           lastName: user.lastName,
           phone: user.phone || undefined,
-          photoUrl: user.photoUrl || undefined,
+          photoUrl: photoUrl || undefined,
           role: user.role,
           nextOfKin: user.nextOfKin,
           emailVerifiedAt: user.emailVerifiedAt || undefined,
@@ -200,6 +225,155 @@ export class AuthController {
       res.status(200).json({ success: true, data: tokens });
     } catch (error: any) {
       res.status(401).json({ success: false, error: error.message });
+    }
+  }
+
+  async getPhotoUploadUrl(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const data = photoUploadUrlSchema.parse(req.body);
+
+      // Validate file
+      const validation = FileService.validatePhotoFile({
+        filename: data.filename,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+      });
+
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error });
+      }
+
+      // Get current user to check for existing photo
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, req.user.id),
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      // Generate file path
+      const filePath = FileService.generateFilePath(req.user.id, 'photos', data.filename);
+
+      // Generate presigned URL
+      const { presignedUrl, filePath: generatedPath } = await FileService.generatePresignedUploadUrl(
+        filePath,
+        data.fileType
+      );
+
+      // Extract old photo path if exists
+      const oldPhotoPath = user.photoUrl ? FileService.extractFilePath(user.photoUrl) : undefined;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          presignedUrl,
+          filePath: generatedPath,
+          oldPhotoPath,
+        },
+      });
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ success: false, error: 'Invalid request data' });
+      }
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  async confirmPhotoUpload(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const data = photoConfirmSchema.parse(req.body);
+
+      // Get current user
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, req.user.id),
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      // Update user photo URL (store file path, not full URL)
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          photoUrl: data.filePath,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, req.user.id))
+        .returning();
+
+      // Delete old photo from R2 if it exists and is different
+      if (data.oldPhotoPath && data.oldPhotoPath !== data.filePath) {
+        try {
+          await FileService.deleteFile(data.oldPhotoPath);
+        } catch (error) {
+          // Log error but don't fail the request
+          console.error('Failed to delete old photo:', error);
+        }
+      }
+
+      // Generate presigned URL for the new photo
+      const photoUrl = await FileService.generatePresignedGetUrl(data.filePath, 'photos');
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          firstName: updatedUser.firstName,
+          lastName: updatedUser.lastName,
+          phone: updatedUser.phone || undefined,
+          photoUrl: photoUrl, // Return presigned URL for immediate use
+          role: updatedUser.role,
+          nextOfKin: updatedUser.nextOfKin,
+          emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
+          createdAt: updatedUser.createdAt,
+          updatedAt: updatedUser.updatedAt,
+        },
+      });
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ success: false, error: 'Invalid request data' });
+      }
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  async getPhotoUrl(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Get current user
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, req.user.id),
+      });
+
+      if (!user || !user.photoUrl) {
+        return res.status(404).json({ success: false, error: 'No photo found' });
+      }
+
+      // Generate presigned URL for viewing photo
+      const photoUrl = await FileService.generatePresignedGetUrl(user.photoUrl, 'photos');
+
+      res.status(200).json({
+        success: true,
+        data: {
+          photoUrl,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 }
