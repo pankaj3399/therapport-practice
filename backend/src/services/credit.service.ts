@@ -57,7 +57,7 @@ export class CreditService {
     });
 
     // Get or create next month's credit ledger (for display)
-    let nextLedger = await db.query.creditLedgers.findFirst({
+    const nextLedger = await db.query.creditLedgers.findFirst({
       where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, nextMonthStr)),
     });
 
