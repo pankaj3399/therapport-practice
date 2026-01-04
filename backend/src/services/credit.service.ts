@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { creditLedgers, memberships } from '../db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { formatMonthYear } from '../utils/date.util';
 
 const DEFAULT_MONTHLY_CREDIT = 105.0;
