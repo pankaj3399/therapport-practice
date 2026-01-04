@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -7,9 +8,45 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
+import api from '@/services/api';
+
+interface DashboardData {
+  freeBookingHours: {
+    remaining: number;
+    totalAllocated: number;
+    totalUsed: number;
+    earliestExpiry: string | null;
+  };
+  credit: {
+    currentMonth: {
+      monthYear: string;
+      monthlyCredit: number;
+      usedCredit: number;
+      remainingCredit: number;
+    } | null;
+    nextMonth: {
+      monthYear: string;
+      monthlyCredit: number;
+    } | null;
+    membershipType: 'permanent' | 'ad_hoc' | null;
+  };
+  upcomingBookings: Array<{
+    id: string;
+    roomName: string;
+    locationName: string;
+    bookingDate: string;
+    startTime: string;
+    endTime: string;
+    totalPrice: number;
+    status: string;
+  }>;
+}
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -22,6 +59,85 @@ export const Dashboard: React.FC = () => {
     month: 'long',
     day: 'numeric',
   });
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get<{ success: boolean; data: DashboardData }>('/practitioner/dashboard');
+        if (response.data.success && response.data.data) {
+          setDashboardData(response.data.data);
+        }
+      } catch (err: any) {
+        setError(err.response?.data?.error || 'Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user]);
+
+  const formatMonthYear = (monthYear: string): string => {
+    const [year, month] = monthYear.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+    return date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  };
+
+  const formatExpiryDate = (dateStr: string | null): string => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const formatTime = (timeStr: string): string => {
+    // timeStr is in format "HH:MM:SS" or "HH:MM"
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const formatBookingDate = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const bookingDate = new Date(date);
+    bookingDate.setHours(0, 0, 0, 0);
+
+    if (bookingDate.getTime() === today.getTime()) {
+      return 'Today';
+    }
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (bookingDate.getTime() === tomorrow.getTime()) {
+      return 'Tomorrow';
+    }
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500 dark:text-slate-400">Loading dashboard...</p>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-red-500">{error}</p>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -50,10 +166,34 @@ export const Dashboard: React.FC = () => {
               <Icon name="account_balance_wallet" className="text-6xl text-primary" />
             </div>
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
-              <div className="flex flex-col gap-1">
-                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [this month] e.g. January</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Credit remaining [next month] e.g. February</p>
-              </div>
+              <p className="text-slate-500 dark:text-slate-400 font-medium">Credit Balance</p>
+              {dashboardData?.credit.currentMonth ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-slate-900 dark:text-white text-3xl font-black tracking-tight">
+                      £{dashboardData.credit.currentMonth.remainingCredit.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatMonthYear(dashboardData.credit.currentMonth.monthYear)} • Used: £
+                    {dashboardData.credit.currentMonth.usedCredit.toFixed(2)} / £
+                    {dashboardData.credit.currentMonth.monthlyCredit.toFixed(2)}
+                  </p>
+                  {dashboardData.credit.nextMonth && (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                      Next month: £{dashboardData.credit.nextMonth.monthlyCredit.toFixed(2)} available
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {dashboardData?.credit.membershipType === 'permanent'
+                      ? 'Permanent membership'
+                      : 'No credit balance'}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -65,10 +205,18 @@ export const Dashboard: React.FC = () => {
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
               <p className="text-slate-500 dark:text-slate-400 font-medium">Free Booking Hours</p>
               <div className="flex items-baseline gap-1">
-                <span className="text-slate-900 dark:text-white text-4xl font-black tracking-tight">4.5</span>
+                <span className="text-slate-900 dark:text-white text-4xl font-black tracking-tight">
+                  {dashboardData?.freeBookingHours.remaining.toFixed(1) || '0.0'}
+                </span>
                 <span className="text-slate-500 font-bold">Hours</span>
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Resets on Nov 1st</p>
+              {dashboardData?.freeBookingHours.earliestExpiry ? (
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                  Expires: {formatExpiryDate(dashboardData.freeBookingHours.earliestExpiry)}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">No active vouchers</p>
+              )}
             </CardContent>
           </Card>
 
@@ -130,28 +278,29 @@ export const Dashboard: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    <TableRow>
-                      <TableCell className="font-medium">Pimlico Room 1</TableCell>
-                      <TableCell>Today</TableCell>
-                      <TableCell>11:00 AM</TableCell>
-                      <TableCell>12:00 PM</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
-                          <Icon name="cancel" size={18} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">Kensington Room 3</TableCell>
-                      <TableCell>Tomorrow</TableCell>
-                      <TableCell>2:00 PM</TableCell>
-                      <TableCell>3:30 PM</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
-                          <Icon name="cancel" size={18} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                    {dashboardData?.upcomingBookings && dashboardData.upcomingBookings.length > 0 ? (
+                      dashboardData.upcomingBookings.map((booking) => (
+                        <TableRow key={booking.id}>
+                          <TableCell className="font-medium">
+                            {booking.roomName} ({booking.locationName})
+                          </TableCell>
+                          <TableCell>{formatBookingDate(booking.bookingDate)}</TableCell>
+                          <TableCell>{formatTime(booking.startTime)}</TableCell>
+                          <TableCell>{formatTime(booking.endTime)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm">
+                              <Icon name="cancel" size={18} />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-slate-500 dark:text-slate-400 py-8">
+                          No upcoming bookings
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
