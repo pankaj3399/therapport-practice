@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,7 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+  const retryControllerRef = useRef<AbortController | null>(null);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -68,7 +69,7 @@ export const Dashboard: React.FC = () => {
     day: 'numeric',
   });
 
-  const fetchDashboardData = async (signal?: AbortSignal) => {
+  const fetchDashboardData = useCallback(async (signal?: AbortSignal) => {
     try {
       if (!isMountedRef.current) return;
       setLoading(true);
@@ -111,7 +112,7 @@ export const Dashboard: React.FC = () => {
         setLoading(false);
       }
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -123,8 +124,13 @@ export const Dashboard: React.FC = () => {
     return () => {
       isMountedRef.current = false;
       controller.abort();
+      // Abort any in-flight retry request
+      if (retryControllerRef.current) {
+        retryControllerRef.current.abort();
+        retryControllerRef.current = null;
+      }
     };
-  }, [user]);
+  }, [user, fetchDashboardData]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
@@ -196,6 +202,11 @@ export const Dashboard: React.FC = () => {
       return '';
     }
 
+    // Validate ranges: hour must be 0-23, minutes must be 0-59
+    if (hour < 0 || hour > 23 || minutes < 0 || minutes > 59) {
+      return '';
+    }
+
     // Compute AM/PM and displayHour using validated numeric values
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
@@ -236,12 +247,23 @@ export const Dashboard: React.FC = () => {
     );
   }
 
+  const handleRetry = () => {
+    // Abort any previous retry request
+    if (retryControllerRef.current) {
+      retryControllerRef.current.abort();
+    }
+    // Create a new AbortController for this retry
+    const controller = new AbortController();
+    retryControllerRef.current = controller;
+    fetchDashboardData(controller.signal);
+  };
+
   if (error) {
     return (
       <MainLayout>
         <div className="flex flex-col items-center justify-center h-64 gap-4">
           <p className="text-red-500">{error}</p>
-          <Button onClick={() => fetchDashboardData()} disabled={loading} variant="outline">
+          <Button onClick={handleRetry} disabled={loading} variant="outline">
             {loading ? 'Retrying...' : 'Retry'}
           </Button>
         </div>

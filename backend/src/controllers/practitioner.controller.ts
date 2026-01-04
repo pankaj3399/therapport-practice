@@ -16,35 +16,33 @@ export class PractitionerController {
 
       const userId = req.user.id;
 
-      // Get free booking hours
-      const voucherSummary = await VoucherService.getRemainingFreeHours(userId);
-
-      // Get credit balance
-      const creditSummary = await CreditService.getCreditBalance(userId);
-
-      // Get upcoming bookings (confirmed, not cancelled, in the future)
+      // Compute todayUtc first
       const todayUtc = new Date();
       todayUtc.setUTCHours(0, 0, 0, 0);
 
-      // Get upcoming bookings with room and location info
-      const upcomingBookingsData = await db
-        .select({
-          booking: bookings,
-          room: rooms,
-          location: locations,
-        })
-        .from(bookings)
-        .innerJoin(rooms, eq(bookings.roomId, rooms.id))
-        .innerJoin(locations, eq(rooms.locationId, locations.id))
-        .where(
-          and(
-            eq(bookings.userId, userId),
-            eq(bookings.status, 'confirmed'),
-            gte(bookings.bookingDate, todayUtc.toISOString().split('T')[0])
+      // Start all three promises in parallel
+      const [voucherSummary, creditSummary, upcomingBookingsData] = await Promise.all([
+        VoucherService.getRemainingFreeHours(userId),
+        CreditService.getCreditBalance(userId),
+        db
+          .select({
+            booking: bookings,
+            room: rooms,
+            location: locations,
+          })
+          .from(bookings)
+          .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+          .innerJoin(locations, eq(rooms.locationId, locations.id))
+          .where(
+            and(
+              eq(bookings.userId, userId),
+              eq(bookings.status, 'confirmed'),
+              gte(bookings.bookingDate, todayUtc.toISOString().split('T')[0])
+            )
           )
-        )
-        .orderBy(asc(bookings.bookingDate), asc(bookings.startTime))
-        .limit(10);
+          .orderBy(asc(bookings.bookingDate), asc(bookings.startTime))
+          .limit(10),
+      ]);
 
       // Format bookings for response
       const formattedBookings = upcomingBookingsData.map(({ booking, room, location }) => ({

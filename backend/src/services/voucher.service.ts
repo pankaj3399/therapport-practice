@@ -23,14 +23,16 @@ export class VoucherService {
    * Only includes active vouchers (not expired)
    */
   static async getRemainingFreeHours(userId: string): Promise<VoucherSummary> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Compute current UTC date string to match CreditService UTC behavior
+    const now = new Date();
+    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const todayStr = todayUTC.toISOString().split('T')[0];
 
     // Get all active (non-expired) vouchers for the user
     const activeVouchers = await db.query.freeBookingVouchers.findMany({
       where: and(
         eq(freeBookingVouchers.userId, userId),
-        gte(freeBookingVouchers.expiryDate, today.toISOString().split('T')[0])
+        gte(freeBookingVouchers.expiryDate, todayStr)
       ),
     });
 

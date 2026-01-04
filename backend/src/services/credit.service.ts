@@ -2,6 +2,7 @@ import { db } from '../config/database';
 import { creditLedgers, memberships } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { formatMonthYear } from '../utils/date.util';
+import { logger } from '../utils/logger.util';
 
 const DEFAULT_MONTHLY_CREDIT = 105.0;
 
@@ -25,68 +26,79 @@ export class CreditService {
    * Only applies to ad-hoc members (permanent members don't have monthly credit)
    */
   static async getCreditBalance(userId: string): Promise<CreditSummary> {
-    // Get user's membership
-    const membership = await db.query.memberships.findFirst({
-      where: eq(memberships.userId, userId),
-    });
+    try {
+      // Get user's membership
+      const membership = await db.query.memberships.findFirst({
+        where: eq(memberships.userId, userId),
+      });
 
-    if (!membership || membership.type !== 'ad_hoc') {
-      // Permanent members don't have monthly credit
-      return {
-        currentMonth: null,
-        nextMonth: null,
-        membershipType: membership?.type || null,
-      };
-    }
-
-    const now = new Date();
-    const currentYear = now.getUTCFullYear();
-    const currentMonth = now.getUTCMonth() + 1; // 1-12
-
-    // Format: YYYY-MM-DD (first day of month in UTC)
-    // Use Date.UTC to create dates in UTC timezone
-    const currentMonthStr = formatMonthYear(new Date(Date.UTC(currentYear, currentMonth - 1, 1)));
-
-    // Calculate next month in UTC
-    const nextMonthDate = new Date(Date.UTC(currentYear, currentMonth, 1));
-    const nextMonthStr = formatMonthYear(nextMonthDate);
-
-    // Get current month's credit ledger
-    const currentLedger = await db.query.creditLedgers.findFirst({
-      where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, currentMonthStr)),
-    });
-
-    // Get or create next month's credit ledger (for display)
-    const nextLedger = await db.query.creditLedgers.findFirst({
-      where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, nextMonthStr)),
-    });
-
-    // If next month doesn't exist yet, we'll show the default credit amount
-    const nextMonthCredit = nextLedger
-      ? parseFloat(nextLedger.monthlyCredit.toString())
-      : DEFAULT_MONTHLY_CREDIT;
-
-    const currentMonthData = currentLedger
-      ? {
-          monthYear: currentMonthStr,
-          monthlyCredit: parseFloat(currentLedger.monthlyCredit.toString()),
-          usedCredit: parseFloat(currentLedger.usedCredit.toString()),
-          remainingCredit: parseFloat(currentLedger.remainingCredit.toString()),
-        }
-      : {
-          monthYear: currentMonthStr,
-          monthlyCredit: DEFAULT_MONTHLY_CREDIT,
-          usedCredit: 0,
-          remainingCredit: DEFAULT_MONTHLY_CREDIT,
+      if (!membership || membership.type !== 'ad_hoc') {
+        // Permanent members don't have monthly credit
+        return {
+          currentMonth: null,
+          nextMonth: null,
+          membershipType: membership?.type || null,
         };
+      }
 
-    return {
-      currentMonth: currentMonthData,
-      nextMonth: {
-        monthYear: nextMonthStr,
-        monthlyCredit: nextMonthCredit,
-      },
-      membershipType: membership.type,
-    };
+      const now = new Date();
+      const currentMonthStr = formatMonthYear(now);
+
+      // Calculate next month in UTC
+      const nextMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      const nextMonthStr = formatMonthYear(nextMonthDate);
+
+      // Get current month's credit ledger
+      const currentLedger = await db.query.creditLedgers.findFirst({
+        where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, currentMonthStr)),
+      });
+
+      // Get or create next month's credit ledger (for display)
+      let nextLedger = await db.query.creditLedgers.findFirst({
+        where: and(eq(creditLedgers.userId, userId), eq(creditLedgers.monthYear, nextMonthStr)),
+      });
+
+      // If next month doesn't exist yet, we'll show the default credit amount
+      const nextMonthCredit = nextLedger
+        ? parseFloat(nextLedger.monthlyCredit.toString())
+        : DEFAULT_MONTHLY_CREDIT;
+
+      const currentMonthData = currentLedger
+        ? {
+            monthYear: currentMonthStr,
+            monthlyCredit: parseFloat(currentLedger.monthlyCredit.toString()),
+            usedCredit: parseFloat(currentLedger.usedCredit.toString()),
+            remainingCredit: parseFloat(currentLedger.remainingCredit.toString()),
+          }
+        : {
+            monthYear: currentMonthStr,
+            monthlyCredit: DEFAULT_MONTHLY_CREDIT,
+            usedCredit: 0,
+            remainingCredit: DEFAULT_MONTHLY_CREDIT,
+          };
+
+      return {
+        currentMonth: currentMonthData,
+        nextMonth: {
+          monthYear: nextMonthStr,
+          monthlyCredit: nextMonthCredit,
+        },
+        membershipType: membership.type,
+      };
+    } catch (error) {
+      const now = new Date();
+      const currentMonthStr = formatMonthYear(now);
+      const nextMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      const nextMonthStr = formatMonthYear(nextMonthDate);
+
+      logger.error('Failed to get credit balance', error, {
+        userId,
+        currentMonthYear: currentMonthStr,
+        nextMonthYear: nextMonthStr,
+      });
+
+      // Rethrow to allow centralized error-handling middleware to handle the response
+      throw error;
+    }
   }
 }
