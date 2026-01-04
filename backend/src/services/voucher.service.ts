@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { freeBookingVouchers } from '../db/schema';
-import { eq, and, gte, sql } from 'drizzle-orm';
+import { eq, and, gte } from 'drizzle-orm';
 
 export interface VoucherSummary {
   totalHoursAllocated: number;
