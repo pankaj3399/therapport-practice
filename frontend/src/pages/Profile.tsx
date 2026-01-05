@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Icon } from '@/components/ui/Icon';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +49,38 @@ export const Profile: React.FC = () => {
     }
   }, [user]);
 
+  // Fetch insurance document on mount
+  useEffect(() => {
+    const fetchInsuranceDocument = async () => {
+      try {
+        const response = await api.get<{
+          success: boolean;
+          data: {
+            id: string;
+            fileName: string;
+            expiryDate: string;
+            documentUrl: string;
+            isExpired: boolean;
+            isExpiringSoon: boolean;
+            daysUntilExpiry: number | null;
+          };
+        }>('/practitioner/documents/insurance');
+        if (response.data.success && response.data.data) {
+          setInsuranceDocument(response.data.data);
+        }
+      } catch (error: any) {
+        // 404 is expected if no document exists yet
+        if (error.response?.status !== 404) {
+          console.error('Failed to fetch insurance document:', error);
+        }
+      }
+    };
+
+    if (user) {
+      fetchInsuranceDocument();
+    }
+  }, [user]);
+
   // Password Change
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -65,6 +98,21 @@ export const Profile: React.FC = () => {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Insurance Document Upload
+  const [insuranceUploading, setInsuranceUploading] = useState(false);
+  const [selectedInsuranceFile, setSelectedInsuranceFile] = useState<File | null>(null);
+  const [insuranceExpiryDate, setInsuranceExpiryDate] = useState<string>('');
+  const [insuranceDocument, setInsuranceDocument] = useState<{
+    id: string;
+    fileName: string;
+    expiryDate: string;
+    documentUrl: string;
+    isExpired: boolean;
+    isExpiringSoon: boolean;
+    daysUntilExpiry: number | null;
+  } | null>(null);
+  const insuranceFileInputRef = useRef<HTMLInputElement>(null);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -175,6 +223,168 @@ export const Profile: React.FC = () => {
       // Don't clear preview on error - let user retry or cancel
     } finally {
       setPhotoUploading(false);
+    }
+  };
+
+  const handleInsuranceSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+      setMessage({ type: 'error', text: 'Please select a PDF or image file (PDF, JPG, PNG)' });
+      return;
+    }
+
+    // Validate file size (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'File size must be less than 10MB' });
+      return;
+    }
+
+    setSelectedInsuranceFile(file);
+  };
+
+  const handleInsuranceCancel = () => {
+    setSelectedInsuranceFile(null);
+    setInsuranceExpiryDate('');
+    setMessage(null);
+    if (insuranceFileInputRef.current) {
+      insuranceFileInputRef.current.value = '';
+    }
+  };
+
+  const handleInsuranceUpload = async () => {
+    // Guard against concurrent uploads
+    if (insuranceUploading) {
+      return;
+    }
+
+    // Validate file and expiry date
+    if (!selectedInsuranceFile) {
+      setMessage({ type: 'error', text: 'No file selected' });
+      return;
+    }
+
+    if (!insuranceExpiryDate) {
+      setMessage({ type: 'error', text: 'Please select an expiry date' });
+      return;
+    }
+
+    // Validate expiry date is in the future
+    const expiry = new Date(insuranceExpiryDate);
+    expiry.setUTCHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    if (expiry <= today) {
+      setMessage({ type: 'error', text: 'Expiry date must be in the future' });
+      return;
+    }
+
+    // Set uploading state synchronously before any awaits
+    setInsuranceUploading(true);
+    setMessage(null);
+
+    try {
+      // Step 1: Get presigned URL from backend
+      const uploadUrlResponse = await api.post('/practitioner/documents/insurance/upload-url', {
+        filename: selectedInsuranceFile.name,
+        fileType: selectedInsuranceFile.type,
+        fileSize: selectedInsuranceFile.size,
+        expiryDate: insuranceExpiryDate,
+      });
+
+      if (!uploadUrlResponse.data.success) {
+        throw new Error(uploadUrlResponse.data.error || 'Failed to get upload URL');
+      }
+
+      const { presignedUrl, filePath, oldDocumentId } = uploadUrlResponse.data.data;
+
+      // Step 2: Upload file directly to R2 with timeout/abort handling
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, 30000); // 30 second timeout
+
+      let uploadResponse: Response;
+      try {
+        uploadResponse = await fetch(presignedUrl, {
+          method: 'PUT',
+          body: selectedInsuranceFile,
+          headers: {
+            'Content-Type': selectedInsuranceFile.type,
+          },
+          signal: abortController.signal,
+        });
+        // Clear timeout if upload completes successfully
+        clearTimeout(timeoutId);
+      } catch (error: any) {
+        // Clear timeout in case of error
+        clearTimeout(timeoutId);
+        
+        // Handle abort/timeout errors
+        if (error.name === 'AbortError' || error.name === 'DOMException') {
+          throw new Error('Upload timed out. Please try again.');
+        }
+        // Re-throw other errors
+        throw error;
+      }
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload file to storage');
+      }
+
+      // Step 3: Confirm upload with backend
+      const confirmResponse = await api.put('/practitioner/documents/insurance/confirm', {
+        filePath,
+        fileName: selectedInsuranceFile.name,
+        expiryDate: insuranceExpiryDate,
+        oldDocumentId: oldDocumentId || undefined,
+      });
+
+      if (confirmResponse.data.success && confirmResponse.data.data) {
+        const confirmData = confirmResponse.data.data;
+        
+        // Check if expiry status fields are present in confirm response
+        if (
+          typeof confirmData.isExpired === 'boolean' &&
+          typeof confirmData.isExpiringSoon === 'boolean' &&
+          (confirmData.daysUntilExpiry === null || typeof confirmData.daysUntilExpiry === 'number')
+        ) {
+          // Use confirm response data directly
+          setInsuranceDocument({
+            id: confirmData.id,
+            fileName: confirmData.fileName,
+            expiryDate: confirmData.expiryDate,
+            documentUrl: confirmData.documentUrl,
+            isExpired: confirmData.isExpired,
+            isExpiringSoon: confirmData.isExpiringSoon,
+            daysUntilExpiry: confirmData.daysUntilExpiry,
+          });
+        } else {
+          // Fallback to GET request if expiry fields are missing
+          const docResponse = await api.get('/practitioner/documents/insurance');
+          if (docResponse.data.success && docResponse.data.data) {
+            setInsuranceDocument(docResponse.data.data);
+          }
+        }
+        
+        setMessage({ type: 'success', text: 'Insurance document uploaded successfully' });
+        setSelectedInsuranceFile(null);
+        setInsuranceExpiryDate('');
+        if (insuranceFileInputRef.current) {
+          insuranceFileInputRef.current.value = '';
+        }
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (error: any) {
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.error || error.message || 'Failed to upload insurance document',
+      });
+    } finally {
+      setInsuranceUploading(false);
     }
   };
 
@@ -498,33 +708,121 @@ export const Profile: React.FC = () => {
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Professional Indemnity Insurance
                     </h3>
+                    
+                    {/* Current Insurance Document Status */}
+                    {insuranceDocument && (
+                      <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Icon 
+                              name={insuranceDocument.isExpired ? 'error' : insuranceDocument.isExpiringSoon ? 'warning' : 'verified'} 
+                              className={cn(
+                                insuranceDocument.isExpired 
+                                  ? 'text-red-500' 
+                                  : insuranceDocument.isExpiringSoon 
+                                  ? 'text-orange-500' 
+                                  : 'text-green-500'
+                              )} 
+                            />
+                            <span className="text-sm font-medium text-slate-900 dark:text-white">
+                              {insuranceDocument.fileName}
+                            </span>
+                          </div>
+                          <Badge 
+                            variant={insuranceDocument.isExpired ? 'destructive' : insuranceDocument.isExpiringSoon ? 'warning' : 'success'}
+                          >
+                            {insuranceDocument.isExpired 
+                              ? 'Expired' 
+                              : insuranceDocument.isExpiringSoon 
+                              ? `Expires in ${insuranceDocument.daysUntilExpiry} days`
+                              : `Valid until ${new Date(insuranceDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                          </Badge>
+                        </div>
+                        {insuranceDocument.isExpired && (
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                            Your insurance document has expired. Please upload a new one.
+                          </p>
+                        )}
+                        {insuranceDocument.isExpiringSoon && !insuranceDocument.isExpired && (
+                          <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                            Your insurance document is expiring soon. Please upload a new one.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Insurance Upload Form */}
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <Label htmlFor="insuranceFile">Insurance Document</Label>
+                        <input
+                          ref={insuranceFileInputRef}
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          onChange={handleInsuranceSelect}
+                          className="hidden"
+                          id="insuranceFile"
+                          disabled={insuranceUploading}
+                        />
                         <div className="flex items-center gap-2">
                           <Input
-                            id="insuranceFile"
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            className="flex-1"
-                            disabled
+                            type="text"
+                            value={selectedInsuranceFile?.name || ''}
+                            placeholder="No file selected"
+                            readOnly
+                            className="flex-1 cursor-pointer"
+                            onClick={() => insuranceFileInputRef.current?.click()}
                           />
-                          <Button variant="outline" size="sm" disabled>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => insuranceFileInputRef.current?.click()}
+                            disabled={insuranceUploading}
+                          >
                             <Icon name="upload" size={18} className="mr-2" />
-                            Upload
+                            Select File
                           </Button>
                         </div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Upload your professional indemnity insurance document
+                          Upload your professional indemnity insurance document (PDF, JPG, PNG, max 10MB)
                         </p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="insuranceExpiry">Insurance Document Expiry Date</Label>
-                        <Input id="insuranceExpiry" type="date" disabled />
+                        <Input
+                          id="insuranceExpiry"
+                          type="date"
+                          value={insuranceExpiryDate}
+                          onChange={(e) => setInsuranceExpiryDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                          disabled={insuranceUploading || !selectedInsuranceFile}
+                        />
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Document upload functionality will be available in Week 2
+                          Select the expiry date of your insurance document
                         </p>
                       </div>
+                      {selectedInsuranceFile && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={handleInsuranceUpload}
+                            disabled={insuranceUploading || !insuranceExpiryDate}
+                          >
+                            <Icon name="check" size={18} className="mr-2" />
+                            {insuranceUploading ? 'Uploading...' : 'Upload Document'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleInsuranceCancel}
+                            disabled={insuranceUploading}
+                          >
+                            <Icon name="close" size={18} className="mr-2" />
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
