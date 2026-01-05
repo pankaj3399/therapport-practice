@@ -264,62 +264,57 @@ export class PractitionerController {
         });
       }
 
-      // Delete old document if exists
+      // Fetch old document if exists (for R2 deletion after transaction)
+      let oldDocument: typeof documents.$inferSelect | null = null;
       if (data.oldDocumentId) {
-        const oldDocument = await db.query.documents.findFirst({
+        const found = await db.query.documents.findFirst({
           where: and(
             eq(documents.id, data.oldDocumentId),
             eq(documents.userId, req.user.id),
             eq(documents.documentType, 'insurance')
           ),
         });
-
-        if (oldDocument) {
-          try {
-            await FileService.deleteFile(FileService.extractFilePath(oldDocument.fileUrl));
-          } catch (error) {
-            logger.error(
-              'Failed to delete old insurance document from R2',
-              error,
-              {
-                userId: req.user.id,
-                oldDocumentId: data.oldDocumentId,
-                method: req.method,
-                url: req.originalUrl,
-              }
-            );
-            // Continue even if deletion fails
-          }
-        }
+        oldDocument = found || null;
       }
 
-      // Create new insurance document
-      const [newDocument] = await db
-        .insert(documents)
-        .values({
-          userId: req.user.id,
-          documentType: 'insurance',
-          fileUrl: data.filePath, // Store file path, not full URL
-          fileName: data.fileName,
-          expiryDate: data.expiryDate,
-        })
-        .returning();
+      // Atomic DB operations: insert new document and delete old DB record in a transaction
+      const userId = req.user.id; // Capture userId for use in transaction
+      const [newDocument] = await db.transaction(async (tx) => {
+        // Insert new document
+        const [newDoc] = await tx
+          .insert(documents)
+          .values({
+            userId: userId,
+            documentType: 'insurance',
+            fileUrl: data.filePath, // Store file path, not full URL
+            fileName: data.fileName,
+            expiryDate: data.expiryDate,
+          })
+          .returning();
 
-      // Delete old document DB record if exists (after successful insert)
-      if (data.oldDocumentId) {
-        try {
-          await db
+        // Delete old document DB record if exists
+        if (data.oldDocumentId) {
+          await tx
             .delete(documents)
             .where(
               and(
                 eq(documents.id, data.oldDocumentId),
-                eq(documents.userId, req.user.id),
+                eq(documents.userId, userId),
                 eq(documents.documentType, 'insurance')
               )
             );
+        }
+
+        return [newDoc];
+      });
+
+      // Delete old R2 file after successful transaction (external service, not in transaction)
+      if (oldDocument) {
+        try {
+          await FileService.deleteFile(FileService.extractFilePath(oldDocument.fileUrl));
         } catch (error) {
           logger.error(
-            'Failed to delete old insurance document from database',
+            'Failed to delete old insurance document from R2',
             error,
             {
               userId: req.user.id,
@@ -328,7 +323,7 @@ export class PractitionerController {
               url: req.originalUrl,
             }
           );
-          // Continue even if deletion fails - new document is already created
+          // Continue even if R2 deletion fails - DB transaction already committed
         }
       }
 

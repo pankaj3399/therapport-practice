@@ -749,7 +749,7 @@ export const Profile: React.FC = () => {
                             value={selectedInsuranceFile?.name || ''}
                             placeholder="No file selected"
                             readOnly
-                            className="flex-1"
+                            className="flex-1 cursor-pointer"
                             onClick={() => insuranceFileInputRef.current?.click()}
                           />
                           <Button
