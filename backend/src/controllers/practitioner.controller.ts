@@ -11,33 +11,27 @@ import { z, ZodError } from 'zod';
 import { HeadObjectCommand } from '@aws-sdk/client-s3';
 import { r2Client, R2_BUCKET_NAME } from '../config/r2';
 
+const futureDate = z.string().refine(
+  (date) => {
+    const expiry = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return expiry > today;
+  },
+  { message: 'Expiry date must be in the future' }
+);
+
 const insuranceUploadUrlSchema = z.object({
   filename: z.string().min(1),
   fileType: z.string().min(1),
   fileSize: z.number().positive(),
-  expiryDate: z.string().refine(
-    (date) => {
-      const expiry = new Date(date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return expiry > today;
-    },
-    { message: 'Expiry date must be in the future' }
-  ),
+  expiryDate: futureDate,
 });
 
 const insuranceConfirmSchema = z.object({
   filePath: z.string().min(1),
   fileName: z.string().min(1),
-  expiryDate: z.string().refine(
-    (date) => {
-      const expiry = new Date(date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return expiry > today;
-    },
-    { message: 'Expiry date must be in the future' }
-  ),
+  expiryDate: futureDate,
   oldDocumentId: z.string().uuid().optional(),
 });
 
