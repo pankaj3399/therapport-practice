@@ -332,8 +332,11 @@ export class PractitionerController {
 
       // Calculate expiry status (similar to getInsuranceDocument)
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      today.setUTCHours(0, 0, 0, 0);
       const expiryDate = newDocument.expiryDate ? new Date(newDocument.expiryDate) : null;
+      if (expiryDate) {
+        expiryDate.setUTCHours(0, 0, 0, 0);
+      }
       const daysUntilExpiry = expiryDate 
         ? Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
         : null;

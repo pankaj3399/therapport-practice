@@ -301,14 +301,35 @@ export const Profile: React.FC = () => {
 
       const { presignedUrl, filePath, oldDocumentId } = uploadUrlResponse.data.data;
 
-      // Step 2: Upload file directly to R2
-      const uploadResponse = await fetch(presignedUrl, {
-        method: 'PUT',
-        body: selectedInsuranceFile,
-        headers: {
-          'Content-Type': selectedInsuranceFile.type,
-        },
-      });
+      // Step 2: Upload file directly to R2 with timeout/abort handling
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, 30000); // 30 second timeout
+
+      let uploadResponse: Response;
+      try {
+        uploadResponse = await fetch(presignedUrl, {
+          method: 'PUT',
+          body: selectedInsuranceFile,
+          headers: {
+            'Content-Type': selectedInsuranceFile.type,
+          },
+          signal: abortController.signal,
+        });
+        // Clear timeout if upload completes successfully
+        clearTimeout(timeoutId);
+      } catch (error: any) {
+        // Clear timeout in case of error
+        clearTimeout(timeoutId);
+        
+        // Handle abort/timeout errors
+        if (error.name === 'AbortError' || error.name === 'DOMException') {
+          throw new Error('Upload timed out. Please try again.');
+        }
+        // Re-throw other errors
+        throw error;
+      }
 
       if (!uploadResponse.ok) {
         throw new Error('Failed to upload file to storage');
