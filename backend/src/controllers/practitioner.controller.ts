@@ -137,6 +137,23 @@ export class PractitionerController {
         return res.status(401).json({ success: false, error: 'Authentication required' });
       }
 
+      // Validate R2 configuration upfront
+      if (!R2_BUCKET_NAME) {
+        logger.error(
+          'R2_BUCKET_NAME is not configured',
+          new Error('R2_BUCKET_NAME environment variable is missing'),
+          {
+            userId: req.user.id,
+            method: req.method,
+            url: req.originalUrl,
+          }
+        );
+        return res.status(500).json({ 
+          success: false, 
+          error: 'File storage service is not configured' 
+        });
+      }
+
       const data = insuranceUploadUrlSchema.parse(req.body);
 
       // Validate file
@@ -181,22 +198,6 @@ export class PractitionerController {
         return res.status(400).json({ 
           success: false, 
           error: error.errors.map(e => e.message).join(', ') 
-        });
-      }
-
-      if (!R2_BUCKET_NAME) {
-        logger.error(
-          'R2_BUCKET_NAME is not configured',
-          error,
-          {
-            userId: req.user?.id,
-            method: req.method,
-            url: req.originalUrl,
-          }
-        );
-        return res.status(500).json({ 
-          success: false, 
-          error: 'File storage service is not configured' 
         });
       }
 
@@ -291,8 +292,7 @@ export class PractitionerController {
         }
       }
 
-      // Create or update insurance document
-      // For now, we'll create a new document entry (can be updated to update existing if needed)
+      // Create new insurance document
       const [newDocument] = await db
         .insert(documents)
         .values({
@@ -304,8 +304,46 @@ export class PractitionerController {
         })
         .returning();
 
+      // Delete old document DB record if exists (after successful insert)
+      if (data.oldDocumentId) {
+        try {
+          await db
+            .delete(documents)
+            .where(
+              and(
+                eq(documents.id, data.oldDocumentId),
+                eq(documents.userId, req.user.id),
+                eq(documents.documentType, 'insurance')
+              )
+            );
+        } catch (error) {
+          logger.error(
+            'Failed to delete old insurance document from database',
+            error,
+            {
+              userId: req.user.id,
+              oldDocumentId: data.oldDocumentId,
+              method: req.method,
+              url: req.originalUrl,
+            }
+          );
+          // Continue even if deletion fails - new document is already created
+        }
+      }
+
       // Generate presigned URL for viewing
       const documentUrl = await FileService.generatePresignedGetUrl(data.filePath, 'documents');
+
+      // Calculate expiry status (similar to getInsuranceDocument)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const expiryDate = newDocument.expiryDate ? new Date(newDocument.expiryDate) : null;
+      const daysUntilExpiry = expiryDate 
+        ? Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+      
+      const isExpired = expiryDate && expiryDate < today;
+      const isExpiringSoon = expiryDate && !isExpired && daysUntilExpiry !== null && daysUntilExpiry <= 30;
 
       res.status(200).json({
         success: true,
@@ -314,6 +352,9 @@ export class PractitionerController {
           fileName: newDocument.fileName,
           expiryDate: newDocument.expiryDate,
           documentUrl, // Presigned URL for viewing
+          isExpired,
+          isExpiringSoon,
+          daysUntilExpiry,
         },
       });
     } catch (error: unknown) {

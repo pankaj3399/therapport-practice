@@ -322,11 +322,32 @@ export const Profile: React.FC = () => {
       });
 
       if (confirmResponse.data.success && confirmResponse.data.data) {
-        // Refresh insurance document
-        const docResponse = await api.get('/practitioner/documents/insurance');
-        if (docResponse.data.success && docResponse.data.data) {
-          setInsuranceDocument(docResponse.data.data);
+        const confirmData = confirmResponse.data.data;
+        
+        // Check if expiry status fields are present in confirm response
+        if (
+          typeof confirmData.isExpired === 'boolean' &&
+          typeof confirmData.isExpiringSoon === 'boolean' &&
+          (confirmData.daysUntilExpiry === null || typeof confirmData.daysUntilExpiry === 'number')
+        ) {
+          // Use confirm response data directly
+          setInsuranceDocument({
+            id: confirmData.id,
+            fileName: confirmData.fileName,
+            expiryDate: confirmData.expiryDate,
+            documentUrl: confirmData.documentUrl,
+            isExpired: confirmData.isExpired,
+            isExpiringSoon: confirmData.isExpiringSoon,
+            daysUntilExpiry: confirmData.daysUntilExpiry,
+          });
+        } else {
+          // Fallback to GET request if expiry fields are missing
+          const docResponse = await api.get('/practitioner/documents/insurance');
+          if (docResponse.data.success && docResponse.data.data) {
+            setInsuranceDocument(docResponse.data.data);
+          }
         }
+        
         setMessage({ type: 'success', text: 'Insurance document uploaded successfully' });
         setSelectedInsuranceFile(null);
         setInsuranceExpiryDate('');
