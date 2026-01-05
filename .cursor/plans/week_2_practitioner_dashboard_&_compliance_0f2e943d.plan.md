@@ -296,19 +296,19 @@ Week 2 focuses on completing the practitioner self-service dashboard with docume
 - Create API endpoint `POST /api/admin/cron/process-reminders` with hybrid security approach
 - Security implementation (hybrid approach):
   ```typescript
-      // Accept requests from:
-      // 1. Vercel Cron Jobs (has x-vercel-signature header)
-      // 2. External services/Linux (has x-cron-secret header matching CRON_SECRET)
-      const vercelSignature = req.headers['x-vercel-signature'];
-      const providedSecret = req.headers['x-cron-secret'];
-      const expectedSecret = process.env.CRON_SECRET;
-      
-      const isVercelRequest = !!vercelSignature;
-      const hasValidSecret = providedSecret === expectedSecret;
-      
-      if (!isVercelRequest && !hasValidSecret) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+        // Accept requests from:
+        // 1. Vercel Cron Jobs (has x-vercel-signature header)
+        // 2. External services/Linux (has x-cron-secret header matching CRON_SECRET)
+        const vercelSignature = req.headers['x-vercel-signature'];
+        const providedSecret = req.headers['x-cron-secret'];
+        const expectedSecret = process.env.CRON_SECRET;
+        
+        const isVercelRequest = !!vercelSignature;
+        const hasValidSecret = providedSecret === expectedSecret;
+        
+        if (!isVercelRequest && !hasValidSecret) {
+          return res.status(401).json({ error: 'Unauthorized' });
+        }
   ```
 
 
@@ -524,4 +524,3 @@ This will call the endpoint every hour. Vercel will include `x-vercel-signature`
 - ✅ Clinical executor details can be saved
 - ✅ Email reminders scheduled automatically on document upload
 - ✅ Reminders sent at expiry date, 2 weeks after, and 4 weeks after (admin)
-- ✅ Role-based access properly enforced
