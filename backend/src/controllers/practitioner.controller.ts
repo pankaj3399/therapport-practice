@@ -14,8 +14,9 @@ import { r2Client, R2_BUCKET_NAME } from '../config/r2';
 const futureDate = z.string().refine(
   (date) => {
     const expiry = new Date(date);
+    expiry.setUTCHours(0, 0, 0, 0);
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     return expiry > today;
   },
   { message: 'Expiry date must be in the future' }
@@ -402,15 +403,17 @@ export class PractitionerController {
 
       // Check if expired or expiring soon (within 30 days)
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      today.setUTCHours(0, 0, 0, 0);
       const expiryDate = document.expiryDate ? new Date(document.expiryDate) : null;
+      if (expiryDate) {
+        expiryDate.setUTCHours(0, 0, 0, 0);
+      }
       const daysUntilExpiry = expiryDate 
         ? Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
         : null;
       
       const isExpired = expiryDate && expiryDate < today;
       const isExpiringSoon = expiryDate && !isExpired && daysUntilExpiry !== null && daysUntilExpiry <= 30;
-
       res.status(200).json({
         success: true,
         data: {

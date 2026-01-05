@@ -274,8 +274,9 @@ export const Profile: React.FC = () => {
 
     // Validate expiry date is in the future
     const expiry = new Date(insuranceExpiryDate);
+    expiry.setUTCHours(0, 0, 0, 0);
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     if (expiry <= today) {
       setMessage({ type: 'error', text: 'Expiry date must be in the future' });
       return;
