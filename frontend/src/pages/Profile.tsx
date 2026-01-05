@@ -231,7 +231,7 @@ export const Profile: React.FC = () => {
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
     if (!allowedTypes.includes(file.type)) {
       setMessage({ type: 'error', text: 'Please select a PDF or image file (PDF, JPG, PNG)' });
       return;
