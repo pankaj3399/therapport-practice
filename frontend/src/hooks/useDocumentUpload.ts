@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import api from '@/services/api';
 
 export interface DocumentData {
@@ -40,6 +40,18 @@ export const useDocumentUpload = ({
   const [expiryDate, setExpiryDate] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+  const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -149,7 +161,7 @@ export const useDocumentUpload = ({
         clearTimeout(timeoutId);
         
         // Handle abort/timeout errors
-        if (error.name === 'AbortError' || error.name === 'DOMException') {
+        if (error.name === 'AbortError') {
           throw new Error('Upload timed out. Please try again.');
         }
         // Re-throw other errors
@@ -199,7 +211,14 @@ export const useDocumentUpload = ({
         setMessage({ type: 'success', text: successMessage });
         setSelectedFile(null);
         setExpiryDate('');
-        setTimeout(() => setMessage(null), 3000);
+        if (messageTimeoutRef.current) {
+          clearTimeout(messageTimeoutRef.current);
+        }
+        messageTimeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            setMessage(null);
+          }
+        }, 3000);
       }
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || 'Failed to upload document';
