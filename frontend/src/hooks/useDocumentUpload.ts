@@ -99,7 +99,7 @@ export const useDocumentUpload = ({
     expiry.setUTCHours(0, 0, 0, 0);
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    if (expiry <= today) {
+    if (expiry < today) {
       const errorMsg = 'Expiry date must be in the future';
       setError(errorMsg);
       setMessage({ type: 'error', text: errorMsg });

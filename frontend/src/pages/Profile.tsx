@@ -321,13 +321,10 @@ export const Profile: React.FC = () => {
     if (!insuranceUpload.selectedFile && insuranceFileInputRef.current) {
       insuranceFileInputRef.current.value = '';
     }
-  }, [insuranceUpload.selectedFile]);
-
-  useEffect(() => {
     if (!clinicalUpload.selectedFile && clinicalFileInputRef.current) {
       clinicalFileInputRef.current.value = '';
     }
-  }, [clinicalUpload.selectedFile]);
+  }, [insuranceUpload.selectedFile, clinicalUpload.selectedFile]);
 
   const handleExecutorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
