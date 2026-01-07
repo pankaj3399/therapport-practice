@@ -4,6 +4,7 @@ import type { UserRole } from '../types';
 import { db } from '../config/database';
 import { memberships } from '../db/schema';
 import { eq } from 'drizzle-orm';
+import { logger } from '../utils/logger.util';
 
 export function requireRole(...allowedRoles: UserRole[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -49,6 +50,7 @@ export async function checkMarketingAddon(
 
     next();
   } catch (error) {
+    logger.error('Failed to verify marketing add-on status', error);
     res.status(500).json({ success: false, error: 'Failed to verify marketing add-on status' });
   }
 }

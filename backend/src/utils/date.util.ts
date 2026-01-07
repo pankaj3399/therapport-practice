@@ -13,3 +13,38 @@ export function formatMonthYear(date: Date): string {
   const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
   return `${year}-${month}-01`;
 }
+
+/**
+ * Calculates expiry status for a document
+ * Normalizes dates to UTC midnight and computes expiry information
+ * @param expiryDateString - The expiry date as a string or null
+ * @returns Object containing isExpired, isExpiringSoon, and daysUntilExpiry
+ */
+export function calculateExpiryStatus(expiryDateString: string | null): {
+  isExpired: boolean;
+  isExpiringSoon: boolean;
+  daysUntilExpiry: number | null;
+} {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const expiryDate = expiryDateString ? new Date(expiryDateString) : null;
+  if (expiryDate) {
+    expiryDate.setUTCHours(0, 0, 0, 0);
+  }
+
+  const daysUntilExpiry = expiryDate
+    ? Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  const isExpired = expiryDate ? expiryDate < today : false;
+  const isExpiringSoon = expiryDate
+    ? !isExpired && daysUntilExpiry !== null && daysUntilExpiry <= 30
+    : false;
+
+  return {
+    isExpired,
+    isExpiringSoon,
+    daysUntilExpiry,
+  };
+}
