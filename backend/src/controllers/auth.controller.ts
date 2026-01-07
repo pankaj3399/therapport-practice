@@ -147,7 +147,7 @@ export class AuthController {
 
       // Fetch full user data
       const { db } = await import('../config/database');
-      const { users } = await import('../db/schema');
+      const { users, memberships } = await import('../db/schema');
       const { eq } = await import('drizzle-orm');
 
       const user = await db.query.users.findFirst({
@@ -157,6 +157,11 @@ export class AuthController {
       if (!user) {
         return res.status(404).json({ success: false, error: 'User not found' });
       }
+
+      // Fetch user's membership
+      const membership = await db.query.memberships.findFirst({
+        where: eq(memberships.userId, req.user.id),
+      });
 
       // Generate presigned URL for photo if exists
       let photoUrl: string | undefined = undefined;
@@ -196,6 +201,12 @@ export class AuthController {
           emailVerifiedAt: user.emailVerifiedAt || undefined,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
+          membership: membership
+            ? {
+                type: membership.type,
+                marketingAddon: membership.marketingAddon,
+              }
+            : undefined,
         },
       });
     } catch (error: any) {
