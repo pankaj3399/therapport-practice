@@ -1,0 +1,27 @@
+{
+  "version": "5",
+  "dialect": "pg",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1767118653333,
+      "tag": "0000_perpetual_dark_phoenix",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1767364671929,
+      "tag": "0001_unique_alex_wilder",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1767802915642,
+      "tag": "0002_easy_blade",
+      "breakpoints": true
+    }
+  ]
+}

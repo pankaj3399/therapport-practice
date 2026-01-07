@@ -1,0 +1,1 @@
+ALTER TABLE "clinical_executors" ADD CONSTRAINT "clinical_executors_user_id_unique" UNIQUE("user_id");

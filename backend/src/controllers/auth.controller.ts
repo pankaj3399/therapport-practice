@@ -4,7 +4,7 @@ import { FileService } from '../services/file.service';
 import { z, ZodError } from 'zod';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { users } from '../db/schema';
+import { users, memberships } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { HeadObjectCommand } from '@aws-sdk/client-s3';
@@ -146,10 +146,6 @@ export class AuthController {
       }
 
       // Fetch full user data
-      const { db } = await import('../config/database');
-      const { users } = await import('../db/schema');
-      const { eq } = await import('drizzle-orm');
-
       const user = await db.query.users.findFirst({
         where: eq(users.id, req.user.id),
       });
@@ -157,6 +153,11 @@ export class AuthController {
       if (!user) {
         return res.status(404).json({ success: false, error: 'User not found' });
       }
+
+      // Fetch user's membership
+      const membership = await db.query.memberships.findFirst({
+        where: eq(memberships.userId, req.user.id),
+      });
 
       // Generate presigned URL for photo if exists
       let photoUrl: string | undefined = undefined;
@@ -196,6 +197,12 @@ export class AuthController {
           emailVerifiedAt: user.emailVerifiedAt || undefined,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
+          membership: membership
+            ? {
+                type: membership.type,
+                marketingAddon: membership.marketingAddon,
+              }
+            : undefined,
         },
       });
     } catch (error: any) {

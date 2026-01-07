@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { useDocumentUpload, DocumentData } from '@/hooks/useDocumentUpload';
 
 export const Profile: React.FC = () => {
   const { user, updateUser } = useAuth();
@@ -81,6 +82,68 @@ export const Profile: React.FC = () => {
     }
   }, [user]);
 
+  // Fetch clinical document and executor on mount (if marketing add-on)
+  useEffect(() => {
+    const fetchClinicalData = async () => {
+      if (!user?.membership?.marketingAddon) {
+        return;
+      }
+
+      // Fetch clinical document
+      try {
+        const docResponse = await api.get<{
+          success: boolean;
+          data: {
+            id: string;
+            fileName: string;
+            expiryDate: string;
+            documentUrl: string;
+            isExpired: boolean;
+            isExpiringSoon: boolean;
+            daysUntilExpiry: number | null;
+          };
+        }>('/practitioner/documents/clinical');
+        if (docResponse.data.success && docResponse.data.data) {
+          setClinicalDocument(docResponse.data.data);
+        }
+      } catch (error: any) {
+        // 404 is expected if no document exists yet
+        if (error.response?.status !== 404) {
+          console.error('Failed to fetch clinical document:', error);
+        }
+      }
+
+      // Fetch clinical executor
+      try {
+        const executorResponse = await api.get<{
+          success: boolean;
+          data: {
+            id: string;
+            name: string;
+            email: string;
+            phone: string;
+          };
+        }>('/practitioner/clinical-executor');
+        if (executorResponse.data.success && executorResponse.data.data) {
+          setExecutorData({
+            name: executorResponse.data.data.name,
+            email: executorResponse.data.data.email,
+            phone: executorResponse.data.data.phone,
+          });
+        }
+      } catch (error: any) {
+        // 404 is expected if no executor exists yet
+        if (error.response?.status !== 404) {
+          console.error('Failed to fetch clinical executor:', error);
+        }
+      }
+    };
+
+    if (user) {
+      fetchClinicalData();
+    }
+  }, [user]);
+
   // Password Change
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -100,19 +163,32 @@ export const Profile: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Insurance Document Upload
-  const [insuranceUploading, setInsuranceUploading] = useState(false);
-  const [selectedInsuranceFile, setSelectedInsuranceFile] = useState<File | null>(null);
-  const [insuranceExpiryDate, setInsuranceExpiryDate] = useState<string>('');
-  const [insuranceDocument, setInsuranceDocument] = useState<{
-    id: string;
-    fileName: string;
-    expiryDate: string;
-    documentUrl: string;
-    isExpired: boolean;
-    isExpiringSoon: boolean;
-    daysUntilExpiry: number | null;
-  } | null>(null);
+  const [insuranceDocument, setInsuranceDocument] = useState<DocumentData | null>(null);
   const insuranceFileInputRef = useRef<HTMLInputElement>(null);
+  const insuranceUpload = useDocumentUpload({
+    baseEndpoint: '/practitioner/documents/insurance',
+    onSuccess: setInsuranceDocument,
+    setMessage,
+    successMessage: 'Insurance document uploaded successfully',
+  });
+
+  // Clinical Document Upload (Marketing Add-on Only)
+  const [clinicalDocument, setClinicalDocument] = useState<DocumentData | null>(null);
+  const clinicalFileInputRef = useRef<HTMLInputElement>(null);
+  const clinicalUpload = useDocumentUpload({
+    baseEndpoint: '/practitioner/documents/clinical',
+    onSuccess: setClinicalDocument,
+    setMessage,
+    successMessage: 'Clinical document uploaded successfully',
+  });
+
+  // Clinical Executor
+  const [executorData, setExecutorData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+  });
+  const [executorLoading, setExecutorLoading] = useState(false);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -226,165 +302,48 @@ export const Profile: React.FC = () => {
     }
   };
 
-  const handleInsuranceSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-    if (!allowedTypes.includes(file.type)) {
-      setMessage({ type: 'error', text: 'Please select a PDF or image file (PDF, JPG, PNG)' });
-      return;
-    }
-
-    // Validate file size (10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'File size must be less than 10MB' });
-      return;
-    }
-
-    setSelectedInsuranceFile(file);
-  };
-
   const handleInsuranceCancel = () => {
-    setSelectedInsuranceFile(null);
-    setInsuranceExpiryDate('');
-    setMessage(null);
+    insuranceUpload.handleCancel();
     if (insuranceFileInputRef.current) {
       insuranceFileInputRef.current.value = '';
     }
   };
 
-  const handleInsuranceUpload = async () => {
-    // Guard against concurrent uploads
-    if (insuranceUploading) {
-      return;
+  const handleClinicalCancel = () => {
+    clinicalUpload.handleCancel();
+    if (clinicalFileInputRef.current) {
+      clinicalFileInputRef.current.value = '';
     }
+  };
 
-    // Validate file and expiry date
-    if (!selectedInsuranceFile) {
-      setMessage({ type: 'error', text: 'No file selected' });
-      return;
+  // Clear file input refs when files are cleared after successful upload
+  useEffect(() => {
+    if (!insuranceUpload.selectedFile && insuranceFileInputRef.current) {
+      insuranceFileInputRef.current.value = '';
     }
-
-    if (!insuranceExpiryDate) {
-      setMessage({ type: 'error', text: 'Please select an expiry date' });
-      return;
+    if (!clinicalUpload.selectedFile && clinicalFileInputRef.current) {
+      clinicalFileInputRef.current.value = '';
     }
+  }, [insuranceUpload.selectedFile, clinicalUpload.selectedFile]);
 
-    // Validate expiry date is in the future
-    const expiry = new Date(insuranceExpiryDate);
-    expiry.setUTCHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    if (expiry <= today) {
-      setMessage({ type: 'error', text: 'Expiry date must be in the future' });
-      return;
-    }
-
-    // Set uploading state synchronously before any awaits
-    setInsuranceUploading(true);
+  const handleExecutorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setExecutorLoading(true);
     setMessage(null);
 
     try {
-      // Step 1: Get presigned URL from backend
-      const uploadUrlResponse = await api.post('/practitioner/documents/insurance/upload-url', {
-        filename: selectedInsuranceFile.name,
-        fileType: selectedInsuranceFile.type,
-        fileSize: selectedInsuranceFile.size,
-        expiryDate: insuranceExpiryDate,
-      });
-
-      if (!uploadUrlResponse.data.success) {
-        throw new Error(uploadUrlResponse.data.error || 'Failed to get upload URL');
-      }
-
-      const { presignedUrl, filePath, oldDocumentId } = uploadUrlResponse.data.data;
-
-      // Step 2: Upload file directly to R2 with timeout/abort handling
-      const abortController = new AbortController();
-      const timeoutId = setTimeout(() => {
-        abortController.abort();
-      }, 30000); // 30 second timeout
-
-      let uploadResponse: Response;
-      try {
-        uploadResponse = await fetch(presignedUrl, {
-          method: 'PUT',
-          body: selectedInsuranceFile,
-          headers: {
-            'Content-Type': selectedInsuranceFile.type,
-          },
-          signal: abortController.signal,
-        });
-        // Clear timeout if upload completes successfully
-        clearTimeout(timeoutId);
-      } catch (error: any) {
-        // Clear timeout in case of error
-        clearTimeout(timeoutId);
-        
-        // Handle abort/timeout errors
-        if (error.name === 'AbortError' || error.name === 'DOMException') {
-          throw new Error('Upload timed out. Please try again.');
-        }
-        // Re-throw other errors
-        throw error;
-      }
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload file to storage');
-      }
-
-      // Step 3: Confirm upload with backend
-      const confirmResponse = await api.put('/practitioner/documents/insurance/confirm', {
-        filePath,
-        fileName: selectedInsuranceFile.name,
-        expiryDate: insuranceExpiryDate,
-        oldDocumentId: oldDocumentId || undefined,
-      });
-
-      if (confirmResponse.data.success && confirmResponse.data.data) {
-        const confirmData = confirmResponse.data.data;
-        
-        // Check if expiry status fields are present in confirm response
-        if (
-          typeof confirmData.isExpired === 'boolean' &&
-          typeof confirmData.isExpiringSoon === 'boolean' &&
-          (confirmData.daysUntilExpiry === null || typeof confirmData.daysUntilExpiry === 'number')
-        ) {
-          // Use confirm response data directly
-          setInsuranceDocument({
-            id: confirmData.id,
-            fileName: confirmData.fileName,
-            expiryDate: confirmData.expiryDate,
-            documentUrl: confirmData.documentUrl,
-            isExpired: confirmData.isExpired,
-            isExpiringSoon: confirmData.isExpiringSoon,
-            daysUntilExpiry: confirmData.daysUntilExpiry,
-          });
-        } else {
-          // Fallback to GET request if expiry fields are missing
-          const docResponse = await api.get('/practitioner/documents/insurance');
-          if (docResponse.data.success && docResponse.data.data) {
-            setInsuranceDocument(docResponse.data.data);
-          }
-        }
-        
-        setMessage({ type: 'success', text: 'Insurance document uploaded successfully' });
-        setSelectedInsuranceFile(null);
-        setInsuranceExpiryDate('');
-        if (insuranceFileInputRef.current) {
-          insuranceFileInputRef.current.value = '';
-        }
+      const response = await api.post('/practitioner/clinical-executor', executorData);
+      if (response.data.success && response.data.data) {
+        setMessage({ type: 'success', text: 'Clinical executor information saved successfully' });
         setTimeout(() => setMessage(null), 3000);
       }
     } catch (error: any) {
       setMessage({
         type: 'error',
-        text: error.response?.data?.error || error.message || 'Failed to upload insurance document',
+        text: error.response?.data?.error || 'Failed to save executor information',
       });
     } finally {
-      setInsuranceUploading(false);
+      setExecutorLoading(false);
     }
   };
 
@@ -520,10 +479,12 @@ export const Profile: React.FC = () => {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className={user?.membership?.marketingAddon ? "grid w-full grid-cols-3" : "grid w-full grid-cols-2"}>
             <TabsTrigger value="personal">General Info</TabsTrigger>
             <TabsTrigger value="security">Password & Security</TabsTrigger>
-            <TabsTrigger value="compliance">Clinical Requirements</TabsTrigger>
+            {user?.membership?.marketingAddon && (
+              <TabsTrigger value="compliance">Clinical Requirements</TabsTrigger>
+            )}
           </TabsList>
 
           {/* Personal Information Tab */}
@@ -759,15 +720,15 @@ export const Profile: React.FC = () => {
                           ref={insuranceFileInputRef}
                           type="file"
                           accept=".pdf,.jpg,.jpeg,.png"
-                          onChange={handleInsuranceSelect}
+                          onChange={insuranceUpload.handleFileSelect}
                           className="hidden"
                           id="insuranceFile"
-                          disabled={insuranceUploading}
+                          disabled={insuranceUpload.uploading}
                         />
                         <div className="flex items-center gap-2">
                           <Input
                             type="text"
-                            value={selectedInsuranceFile?.name || ''}
+                            value={insuranceUpload.selectedFile?.name || ''}
                             placeholder="No file selected"
                             readOnly
                             className="flex-1 cursor-pointer"
@@ -777,7 +738,7 @@ export const Profile: React.FC = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => insuranceFileInputRef.current?.click()}
-                            disabled={insuranceUploading}
+                            disabled={insuranceUpload.uploading}
                           >
                             <Icon name="upload" size={18} className="mr-2" />
                             Select File
@@ -792,31 +753,31 @@ export const Profile: React.FC = () => {
                         <Input
                           id="insuranceExpiry"
                           type="date"
-                          value={insuranceExpiryDate}
-                          onChange={(e) => setInsuranceExpiryDate(e.target.value)}
+                          value={insuranceUpload.expiryDate}
+                          onChange={(e) => insuranceUpload.setExpiryDate(e.target.value)}
                           min={new Date().toISOString().split('T')[0]}
-                          disabled={insuranceUploading || !selectedInsuranceFile}
+                          disabled={insuranceUpload.uploading || !insuranceUpload.selectedFile}
                         />
                         <p className="text-xs text-slate-500 dark:text-slate-400">
                           Select the expiry date of your insurance document
                         </p>
                       </div>
-                      {selectedInsuranceFile && (
+                      {insuranceUpload.selectedFile && (
                         <div className="flex gap-2">
                           <Button
                             variant="default"
                             size="sm"
-                            onClick={handleInsuranceUpload}
-                            disabled={insuranceUploading || !insuranceExpiryDate}
+                            onClick={insuranceUpload.handleUpload}
+                            disabled={insuranceUpload.uploading || !insuranceUpload.expiryDate}
                           >
                             <Icon name="check" size={18} className="mr-2" />
-                            {insuranceUploading ? 'Uploading...' : 'Upload Document'}
+                            {insuranceUpload.uploading ? 'Uploading...' : 'Upload Document'}
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={handleInsuranceCancel}
-                            disabled={insuranceUploading}
+                            disabled={insuranceUpload.uploading}
                           >
                             <Icon name="close" size={18} className="mr-2" />
                             Cancel
@@ -970,101 +931,207 @@ export const Profile: React.FC = () => {
             </Card>
           </TabsContent>
 
-          {/* Clinical Requirements Tab */}
-          <TabsContent value="compliance" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Icon name="description" className="text-primary" />
-                  Clinical Requirements
-                </CardTitle>
-                <CardDescription>
-                  Upload and manage your clinical registration documents and executor information
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="clinicalRegistrationFile">
+          {/* Clinical Requirements Tab - Only visible with marketing add-on */}
+          {user?.membership?.marketingAddon && (
+            <TabsContent value="compliance" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Icon name="description" className="text-primary" />
+                    Clinical Requirements
+                  </CardTitle>
+                  <CardDescription>
+                    Upload and manage your clinical registration documents and executor information
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    {/* Clinical Registration Document Upload */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                         Clinical Registration Document
-                      </Label>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1 mb-2">
-                        For example, a scan of your valid UKCP, BACP and HCPC registration
-                        certificate
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          id="clinicalRegistrationFile"
-                          type="file"
-                          accept=".pdf,.jpg,.jpeg,.png"
-                          className="flex-1"
-                          disabled
-                        />
-                        <Button variant="outline" size="sm" disabled>
-                          <Icon name="upload" size={18} className="mr-2" />
-                          Upload
-                        </Button>
-                      </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Upload your professional registration document
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="clinicalRegistrationExpiry">
-                        Clinical Registration Document Expiry Date
-                      </Label>
-                      <Input id="clinicalRegistrationExpiry" type="date" disabled />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">
-                        Clinical Executor Information
                       </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                        A clinical executor is the person appointed by a therapist to carry out
-                        their professional and ethical responsibilities—such as safeguarding
-                        clients, managing clinical records, and closing or transferring a
-                        practice—if the therapist dies or becomes incapacitated.
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="executorName">Name</Label>
-                        <Input id="executorName" placeholder="John Doe" disabled />
+                      
+                      {/* Current Document Status */}
+                      {clinicalDocument && (
+                        <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Icon 
+                                name={clinicalDocument.isExpired ? 'error' : clinicalDocument.isExpiringSoon ? 'warning' : 'verified'} 
+                                className={cn(
+                                  clinicalDocument.isExpired 
+                                    ? 'text-red-500' 
+                                    : clinicalDocument.isExpiringSoon 
+                                    ? 'text-orange-500' 
+                                    : 'text-green-500'
+                                )} 
+                              />
+                              <span className="text-sm font-medium text-slate-900 dark:text-white">
+                                {clinicalDocument.fileName}
+                              </span>
+                            </div>
+                            <Badge 
+                              variant={clinicalDocument.isExpired ? 'destructive' : clinicalDocument.isExpiringSoon ? 'warning' : 'success'}
+                            >
+                              {clinicalDocument.isExpired 
+                                ? 'Expired' 
+                                : clinicalDocument.isExpiringSoon 
+                                ? `Expires in ${clinicalDocument.daysUntilExpiry} days`
+                                : `Valid until ${new Date(clinicalDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                            </Badge>
+                          </div>
+                          {clinicalDocument.isExpired && (
+                            <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                              Your clinical registration document has expired. Please upload a new one.
+                            </p>
+                          )}
+                          {clinicalDocument.isExpiringSoon && !clinicalDocument.isExpired && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                              Your clinical registration document is expiring soon. Please upload a new one.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Upload Form */}
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="clinicalRegistrationFile">Clinical Registration Document</Label>
+                          <input
+                            ref={clinicalFileInputRef}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            onChange={clinicalUpload.handleFileSelect}
+                            className="hidden"
+                            id="clinicalRegistrationFile"
+                            disabled={clinicalUpload.uploading}
+                          />
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="text"
+                              value={clinicalUpload.selectedFile?.name || ''}
+                              placeholder="No file selected"
+                              readOnly
+                              className="flex-1 cursor-pointer"
+                              onClick={() => clinicalFileInputRef.current?.click()}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => clinicalFileInputRef.current?.click()}
+                              disabled={clinicalUpload.uploading}
+                            >
+                              <Icon name="upload" size={18} className="mr-2" />
+                              Select File
+                            </Button>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Upload your clinical registration document (PDF, JPG, PNG, max 10MB)
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="clinicalRegistrationExpiry">Document Expiry Date</Label>
+                          <Input
+                            id="clinicalRegistrationExpiry"
+                            type="date"
+                            value={clinicalUpload.expiryDate}
+                            onChange={(e) => clinicalUpload.setExpiryDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            disabled={clinicalUpload.uploading || !clinicalUpload.selectedFile}
+                          />
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Select the expiry date of your clinical registration document
+                          </p>
+                        </div>
+                        {clinicalUpload.selectedFile && (
+                          <div className="flex gap-2">
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={clinicalUpload.handleUpload}
+                              disabled={clinicalUpload.uploading || !clinicalUpload.expiryDate}
+                            >
+                              <Icon name="check" size={18} className="mr-2" />
+                              {clinicalUpload.uploading ? 'Uploading...' : 'Upload Document'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleClinicalCancel}
+                              disabled={clinicalUpload.uploading}
+                            >
+                              <Icon name="close" size={18} className="mr-2" />
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="executorEmail">Email</Label>
-                        <Input
-                          id="executorEmail"
-                          type="email"
-                          placeholder="john.doe@example.com"
-                          disabled
-                        />
-                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="executorPhone">Phone Number</Label>
-                      <Input
-                        id="executorPhone"
-                        type="tel"
-                        placeholder="+44 20 1234 5678"
-                        disabled
-                      />
+
+                    <Separator />
+
+                    {/* Clinical Executor Form */}
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">
+                          Clinical Executor Information
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                          A clinical executor is the person appointed by a therapist to carry out
+                          their professional and ethical responsibilities—such as safeguarding
+                          clients, managing clinical records, and closing or transferring a
+                          practice—if the therapist dies or becomes incapacitated.
+                        </p>
+                      </div>
+                      <form onSubmit={handleExecutorSubmit} className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="executorName">Name</Label>
+                            <Input
+                              id="executorName"
+                              placeholder="John Doe"
+                              value={executorData.name}
+                              onChange={(e) => setExecutorData({ ...executorData, name: e.target.value })}
+                              required
+                              disabled={executorLoading}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="executorEmail">Email</Label>
+                            <Input
+                              id="executorEmail"
+                              type="email"
+                              placeholder="john.doe@example.com"
+                              value={executorData.email}
+                              onChange={(e) => setExecutorData({ ...executorData, email: e.target.value })}
+                              required
+                              disabled={executorLoading}
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="executorPhone">Phone Number</Label>
+                          <Input
+                            id="executorPhone"
+                            type="tel"
+                            placeholder="+44 20 1234 5678"
+                            value={executorData.phone}
+                            onChange={(e) => setExecutorData({ ...executorData, phone: e.target.value })}
+                            required
+                            disabled={executorLoading}
+                          />
+                        </div>
+                        <Button type="submit" disabled={executorLoading}>
+                          {executorLoading ? 'Saving...' : 'Save Executor Information'}
+                        </Button>
+                      </form>
                     </div>
                   </div>
-
-                  <p className="text-xs text-slate-500 dark:text-slate-500 text-center pt-4">
-                    Document upload functionality will be available in Week 2
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </MainLayout>

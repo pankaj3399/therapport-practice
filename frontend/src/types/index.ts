@@ -13,6 +13,10 @@ export interface User {
   emailVerifiedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+  membership?: {
+    type: 'permanent' | 'ad_hoc';
+    marketingAddon: boolean;
+  };
 }
 
 export interface NextOfKin {
