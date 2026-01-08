@@ -119,5 +119,83 @@ api.interceptors.response.use(
   }
 );
 
+// Helper function to validate userId
+const validateUserId = (userId: string): void => {
+  if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+    throw new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`);
+  }
+};
+
+// Admin API methods
+export const adminApi = {
+  getAdminStats: () => {
+    return api.get<ApiResponse<{
+      practitionerCount: number;
+    }>>('/admin/stats');
+  },
+
+  getPractitioners: (search?: string) => {
+    const params = search ? { search } : {};
+    return api.get<ApiResponse<Array<{
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      membership: {
+        id?: string;
+        type: 'permanent' | 'ad_hoc';
+        marketingAddon: boolean;
+      } | null;
+    }>>>('/admin/practitioners', { params });
+  },
+
+  getPractitioner: (userId: string) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    
+    return api.get<ApiResponse<{
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+      role: string;
+      membership: {
+        id?: string;
+        type: 'permanent' | 'ad_hoc';
+        marketingAddon: boolean;
+      } | null;
+    }>>(`/admin/practitioners/${userId}`);
+  },
+
+  updateMembership: (userId: string, data: {
+    type?: 'permanent' | 'ad_hoc' | null;
+    marketingAddon?: boolean;
+  }) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    
+    // Validate business rule: marketingAddon can only be true when type === 'permanent'
+    // Only validate when type is explicitly provided to allow partial updates
+    if (data.marketingAddon === true && data.type !== undefined && data.type !== 'permanent') {
+      return Promise.reject(
+        new Error('Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.')
+      );
+    }
+    
+    return api.put<ApiResponse<{
+      id: string;
+      type: 'permanent' | 'ad_hoc';
+      marketingAddon: boolean;
+    }>>(`/admin/practitioners/${userId}/membership`, data);
+  },
+};
+
 export default api;
 

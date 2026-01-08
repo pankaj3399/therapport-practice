@@ -1,0 +1,438 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { MainLayout } from '@/components/layout/MainLayout';
+import { AccessDenied } from '@/components/AccessDenied';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Icon } from '@/components/ui/Icon';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { adminApi } from '@/services/api';
+import { cn } from '@/lib/utils';
+
+interface Practitioner {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  membership: {
+    id?: string;
+    type: 'permanent' | 'ad_hoc';
+    marketingAddon: boolean;
+  } | null;
+}
+
+interface PractitionerDetail extends Practitioner {
+  phone?: string;
+  role: string;
+}
+
+export const PractitionerManagement: React.FC = () => {
+  const { user } = useAuth();
+  const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
+  const [selectedPractitioner, setSelectedPractitioner] = useState<PractitionerDetail | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Membership form state
+  const [membershipType, setMembershipType] = useState<'permanent' | 'ad_hoc' | ''>('');
+  const [marketingAddon, setMarketingAddon] = useState(false);
+
+  // Helper function to set message and clear any existing timeout
+  const setMessageWithTimeout = useCallback(
+    (message: { type: 'success' | 'error'; text: string } | null, timeoutMs?: number) => {
+      // Clear any existing timeout before setting a new message
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
+        messageTimeoutRef.current = null;
+      }
+      setMessage(message);
+      // Only auto-clear success messages, or if explicitly requested
+      if (message && (message.type === 'success' || timeoutMs !== undefined)) {
+        const timeout = timeoutMs ?? (message.type === 'success' ? 3000 : undefined);
+        if (timeout) {
+          messageTimeoutRef.current = setTimeout(() => {
+            setMessage(null);
+            messageTimeoutRef.current = null;
+          }, timeout);
+        }
+      }
+    },
+    []
+  );
+
+  const fetchPractitioners = useCallback(
+    async (query?: string) => {
+      try {
+        setLoading(true);
+        const response = await adminApi.getPractitioners(query || undefined);
+        if (response.data.success && response.data.data) {
+          setPractitioners(response.data.data);
+        }
+      } catch (error: any) {
+        setMessageWithTimeout({
+          type: 'error',
+          text: error.response?.data?.error || 'Failed to load practitioners',
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [setMessageWithTimeout]
+  );
+
+  useEffect(() => {
+    fetchPractitioners();
+  }, [fetchPractitioners]);
+
+  useEffect(() => {
+    if (selectedPractitioner) {
+      setMembershipType(selectedPractitioner.membership?.type || '');
+      setMarketingAddon(selectedPractitioner.membership?.marketingAddon || false);
+    }
+  }, [selectedPractitioner]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
+      }
+      if (saveStatusTimerRef.current) {
+        clearTimeout(saveStatusTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleSearch = () => {
+    fetchPractitioners(searchQuery);
+  };
+
+  const handleSelectPractitioner = async (practitionerId: string) => {
+    try {
+      const response = await adminApi.getPractitioner(practitionerId);
+      if (response.data.success && response.data.data) {
+        setSelectedPractitioner(response.data.data);
+      }
+    } catch (error: any) {
+      setMessageWithTimeout({
+        type: 'error',
+        text: error.response?.data?.error || 'Failed to load practitioner details',
+      });
+    }
+  };
+
+  const handleSaveMembership = async () => {
+    if (!selectedPractitioner) return;
+
+    // Validate marketing add-on can only be enabled for permanent members
+    if (marketingAddon && membershipType !== 'permanent') {
+      setMessageWithTimeout({
+        type: 'error',
+        text: 'Marketing add-on can only be enabled for permanent members',
+      });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setSaveStatus('saving');
+      setMessageWithTimeout(null);
+
+      const updateData: {
+        type?: 'permanent' | 'ad_hoc' | null;
+        marketingAddon?: boolean;
+      } = {};
+
+      // Handle membership removal (falsy membershipType)
+      if (!membershipType) {
+        // If there's an existing membership, remove it
+        if (selectedPractitioner.membership) {
+          updateData.type = null;
+        } else {
+          // No membership to remove, nothing to do
+          setSaving(false);
+          setSaveStatus('idle');
+          return;
+        }
+      } else {
+        // Create or update membership
+        updateData.type = membershipType as 'permanent' | 'ad_hoc';
+
+        if (selectedPractitioner.membership) {
+          // Only update marketing add-on if it changed
+          if (marketingAddon !== selectedPractitioner.membership.marketingAddon) {
+            updateData.marketingAddon = marketingAddon;
+          }
+        } else {
+          // Creating new membership, include marketing add-on
+          updateData.marketingAddon = marketingAddon;
+        }
+      }
+
+      const response = await adminApi.updateMembership(selectedPractitioner.id, updateData);
+      if (response.data.success) {
+        setSaveStatus('saved');
+        const messageText =
+          updateData.type === null
+            ? 'Membership removed successfully'
+            : 'Membership updated successfully';
+        setMessageWithTimeout({ type: 'success', text: messageText });
+        // Refresh practitioner list and details
+        await fetchPractitioners(searchQuery);
+        await handleSelectPractitioner(selectedPractitioner.id);
+        // Reset save status after a brief delay
+        // Clear any existing timer before creating a new one
+        if (saveStatusTimerRef.current) {
+          clearTimeout(saveStatusTimerRef.current);
+        }
+        saveStatusTimerRef.current = setTimeout(() => {
+          setSaveStatus('idle');
+          saveStatusTimerRef.current = null;
+        }, 2000);
+      }
+    } catch (error: any) {
+      setSaveStatus('idle');
+      setMessageWithTimeout({
+        type: 'error',
+        text: error.response?.data?.error || 'Failed to update membership',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (user?.role !== 'admin') {
+    return <AccessDenied />;
+  }
+
+  return (
+    <MainLayout>
+      <div className="space-y-6">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+            Practitioner Management
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400">
+            View and manage practitioner memberships
+          </p>
+        </div>
+
+        {message && (
+          <div
+            className={cn(
+              'p-4 rounded-lg',
+              message.type === 'success'
+                ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
+                : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
+            )}
+          >
+            {message.text}
+          </div>
+        )}
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Practitioner List */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Practitioners</CardTitle>
+              <CardDescription>Search and select a practitioner to manage</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Search by name or email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                <Button onClick={handleSearch} disabled={loading}>
+                  <Icon name="search" size={18} className="mr-2" />
+                  Search
+                </Button>
+              </div>
+
+              {loading ? (
+                <output
+                  className="block text-center py-8 text-slate-500"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  Loading...
+                </output>
+              ) : practitioners.length === 0 ? (
+                <output
+                  className="block text-center py-8 text-slate-500"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  No practitioners found
+                </output>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Membership</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {practitioners.map((practitioner) => (
+                        <TableRow
+                          key={practitioner.id}
+                          className={cn(
+                            'cursor-pointer',
+                            selectedPractitioner?.id === practitioner.id &&
+                              'bg-slate-50 dark:bg-slate-900'
+                          )}
+                          tabIndex={0}
+                          onClick={() => handleSelectPractitioner(practitioner.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleSelectPractitioner(practitioner.id);
+                            }
+                          }}
+                        >
+                          <TableCell>
+                            {practitioner.firstName} {practitioner.lastName}
+                          </TableCell>
+                          <TableCell>{practitioner.email}</TableCell>
+                          <TableCell>
+                            {practitioner.membership ? (
+                              <div className="flex gap-2">
+                                <Badge variant="outline">{practitioner.membership.type}</Badge>
+                                {practitioner.membership.marketingAddon && (
+                                  <Badge variant="success">Marketing</Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <Badge variant="outline">No membership</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectPractitioner(practitioner.id);
+                              }}
+                            >
+                              <Icon name="edit" size={16} />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Membership Editor */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Membership Details</CardTitle>
+              <CardDescription>
+                {selectedPractitioner
+                  ? `Edit membership for ${selectedPractitioner.firstName} ${selectedPractitioner.lastName}`
+                  : 'Select a practitioner to edit their membership'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedPractitioner ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="membershipType">Membership Type</Label>
+                    <select
+                      id="membershipType"
+                      value={membershipType}
+                      onChange={(e) => {
+                        const newType = e.target.value as 'permanent' | 'ad_hoc' | '';
+                        setMembershipType(newType);
+                        // If changing to ad_hoc, disable marketing add-on
+                        if (newType === 'ad_hoc') {
+                          setMarketingAddon(false);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900"
+                      disabled={saving}
+                    >
+                      <option value="">No membership</option>
+                      <option value="permanent">Permanent</option>
+                      <option value="ad_hoc">Ad-hoc</option>
+                    </select>
+                  </div>
+
+                  {membershipType === 'permanent' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="marketingAddon" className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="marketingAddon"
+                          checked={marketingAddon}
+                          onChange={(e) => setMarketingAddon(e.target.checked)}
+                          disabled={saving}
+                          className="w-4 h-4"
+                        />
+                        <span>Enable Marketing Add-on</span>
+                      </Label>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Marketing add-on is only available for permanent members
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleSaveMembership}
+                      disabled={saving}
+                      className="w-full"
+                      aria-busy={saving}
+                    >
+                      {saving ? 'Saving...' : 'Save Membership'}
+                    </Button>
+                    {saveStatus !== 'idle' && (
+                      <output
+                        role="status"
+                        aria-live="polite"
+                        aria-atomic="true"
+                        className="text-sm text-center text-slate-600 dark:text-slate-400"
+                      >
+                        {saveStatus === 'saving' && 'Saving…'}
+                        {saveStatus === 'saved' && 'Saved'}
+                      </output>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-500">
+                  Select a practitioner from the list to edit their membership
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </MainLayout>
+  );
+};

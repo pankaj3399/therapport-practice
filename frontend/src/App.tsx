@@ -10,6 +10,8 @@ import { ResetPassword } from './pages/auth/ResetPassword';
 import { VerifyEmailChange } from './pages/auth/VerifyEmailChange';
 import { Dashboard } from './pages/Dashboard';
 import { Profile } from './pages/Profile';
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { PractitionerManagement } from './pages/admin/PractitionerManagement';
 import './styles/globals.css';
 
 function App() {
@@ -37,6 +39,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/practitioners"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <PractitionerManagement />
                 </ProtectedRoute>
               }
             />
