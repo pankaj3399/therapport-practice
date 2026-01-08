@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { AccessDenied } from '@/components/AccessDenied';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/Icon';
@@ -16,9 +17,9 @@ export const AdminDashboard: React.FC = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await adminApi.getPractitioners();
+        const response = await adminApi.getAdminStats();
         if (response.data.success && response.data.data) {
-          setPractitionerCount(response.data.data.length);
+          setPractitionerCount(response.data.data.practitionerCount);
         }
       } catch (error) {
         console.error('Failed to fetch practitioner count:', error);
@@ -31,6 +32,10 @@ export const AdminDashboard: React.FC = () => {
       fetchStats();
     }
   }, [user]);
+
+  if (user?.role !== 'admin') {
+    return <AccessDenied />;
+  }
 
   return (
     <MainLayout>

@@ -2,23 +2,14 @@ import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
 import { users, memberships } from '../db/schema';
-import { eq, and, or, like, SQL } from 'drizzle-orm';
+import { eq, and, or, like, SQL, count } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 
 const updateMembershipSchema = z.object({
-  type: z.enum(['permanent', 'ad_hoc']).optional(),
+  type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
   marketingAddon: z.boolean().optional(),
-}).refine(
-  (data) => {
-    // If marketingAddon is being set to true, type must be permanent
-    if (data.marketingAddon === true && data.type !== 'permanent') {
-      return false;
-    }
-    return true;
-  },
-  { message: 'Marketing add-on can only be enabled for permanent members' }
-);
+});
 
 export class AdminController {
   async getPractitioners(req: AuthRequest, res: Response) {
@@ -40,9 +31,7 @@ export class AdminController {
           like(users.firstName, searchTerm),
           like(users.lastName, searchTerm)
         );
-        if (searchCondition) {
-          whereConditions.push(searchCondition);
-        }
+        whereConditions.push(searchCondition);
       }
 
       // Build query
@@ -92,6 +81,40 @@ export class AdminController {
     }
   }
 
+  async getAdminStats(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Efficiently count practitioners using COUNT query
+      const [result] = await db
+        .select({ count: count() })
+        .from(users)
+        .where(eq(users.role, 'practitioner'));
+
+      const practitionerCount = result?.count || 0;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          practitionerCount,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error(
+        'Failed to get admin stats',
+        error,
+        {
+          userId: req.user?.id,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
   async getPractitioner(req: AuthRequest, res: Response) {
     try {
       if (!req.user) {
@@ -100,19 +123,29 @@ export class AdminController {
 
       const { userId } = req.params;
 
-      // Get user
-      const practitioner = await db.query.users.findFirst({
-        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
-      });
+      // Build query with leftJoin
+      const result = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          phone: users.phone,
+          role: users.role,
+          membershipId: memberships.id,
+          membershipType: memberships.type,
+          marketingAddon: memberships.marketingAddon,
+        })
+        .from(users)
+        .leftJoin(memberships, eq(users.id, memberships.userId))
+        .where(and(eq(users.id, userId), eq(users.role, 'practitioner')))
+        .limit(1);
 
-      if (!practitioner) {
+      if (result.length === 0) {
         return res.status(404).json({ success: false, error: 'Practitioner not found' });
       }
 
-      // Get membership separately
-      const membership = await db.query.memberships.findFirst({
-        where: eq(memberships.userId, userId),
-      });
+      const practitioner = result[0];
 
       res.status(200).json({
         success: true,
@@ -123,11 +156,11 @@ export class AdminController {
           lastName: practitioner.lastName,
           phone: practitioner.phone || undefined,
           role: practitioner.role,
-          membership: membership
+          membership: practitioner.membershipType
             ? {
-                id: membership.id,
-                type: membership.type,
-                marketingAddon: membership.marketingAddon,
+                id: practitioner.membershipId,
+                type: practitioner.membershipType,
+                marketingAddon: practitioner.marketingAddon,
               }
             : null,
         },
@@ -170,19 +203,14 @@ export class AdminController {
         where: eq(memberships.userId, userId),
       });
 
-      // Validate marketing add-on can only be enabled for permanent members
-      if (data.marketingAddon === true) {
-        const targetType = data.type || currentMembership?.type;
-        if (targetType !== 'permanent') {
-          return res.status(400).json({
-            success: false,
-            error: 'Marketing add-on can only be enabled for permanent members',
-          });
-        }
+      // Handle membership deletion (type: null)
+      if (data.type === null && currentMembership) {
+        await db.delete(memberships).where(eq(memberships.id, currentMembership.id));
+        return res.status(200).json({
+          success: true,
+          data: null,
+        });
       }
-
-      // If disabling marketing add-on, we can do it regardless of type
-      // But if enabling, we already validated it's permanent
 
       // Update or create membership
       if (currentMembership) {
@@ -192,7 +220,7 @@ export class AdminController {
           marketingAddon?: boolean;
         } = {};
 
-        if (data.type !== undefined) {
+        if (data.type !== undefined && data.type !== null) {
           updateData.type = data.type;
         }
 
@@ -207,49 +235,69 @@ export class AdminController {
           updateData.marketingAddon = false;
         }
 
-        await db
+        // Atomic conditional update: include expected current values in WHERE clause
+        // to detect concurrent modifications (TOCTOU protection)
+        const updatedRows = await db
           .update(memberships)
           .set({
             ...updateData,
             updatedAt: new Date(),
           })
-          .where(eq(memberships.id, currentMembership.id));
+          .where(
+            and(
+              eq(memberships.id, currentMembership.id),
+              eq(memberships.type, currentMembership.type),
+              eq(memberships.marketingAddon, currentMembership.marketingAddon)
+            )
+          )
+          .returning();
+
+        // If no rows were updated, membership was modified concurrently
+        if (updatedRows.length === 0) {
+          return res.status(409).json({
+            success: false,
+            error: 'Membership was modified by another request. Please refresh and try again.',
+          });
+        }
+
+        // Use the returned row from the update
+        const updatedMembership = updatedRows[0];
+
+        res.status(200).json({
+          success: true,
+          data: {
+            id: updatedMembership.id,
+            type: updatedMembership.type,
+            marketingAddon: updatedMembership.marketingAddon,
+          },
+        });
       } else {
         // Create new membership
-        if (!data.type) {
+        if (!data.type || data.type === null) {
           return res.status(400).json({
             success: false,
             error: 'Membership type is required when creating a new membership',
           });
         }
 
-        await db.insert(memberships).values({
-          userId,
-          type: data.type,
-          marketingAddon: data.marketingAddon ?? false,
+        const [newMembership] = await db
+          .insert(memberships)
+          .values({
+            userId,
+            type: data.type,
+            marketingAddon: data.marketingAddon ?? false,
+          })
+          .returning();
+
+        res.status(200).json({
+          success: true,
+          data: {
+            id: newMembership.id,
+            type: newMembership.type,
+            marketingAddon: newMembership.marketingAddon,
+          },
         });
       }
-
-      // Fetch updated membership
-      const updatedMembership = await db.query.memberships.findFirst({
-        where: eq(memberships.userId, userId),
-      });
-
-      if (!updatedMembership) {
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to retrieve updated membership',
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          id: updatedMembership.id,
-          type: updatedMembership.type,
-          marketingAddon: updatedMembership.marketingAddon,
-        },
-      });
     } catch (error: unknown) {
       if (error instanceof ZodError) {
         return res.status(400).json({

@@ -121,6 +121,12 @@ api.interceptors.response.use(
 
 // Admin API methods
 export const adminApi = {
+  getAdminStats: () => {
+    return api.get<ApiResponse<{
+      practitionerCount: number;
+    }>>('/admin/stats');
+  },
+
   getPractitioners: (search?: string) => {
     const params = search ? { search } : {};
     return api.get<ApiResponse<Array<{
@@ -160,9 +166,16 @@ export const adminApi = {
   },
 
   updateMembership: (userId: string, data: {
-    type?: 'permanent' | 'ad_hoc';
+    type?: 'permanent' | 'ad_hoc' | null;
     marketingAddon?: boolean;
   }) => {
+    // Validate userId: must be a non-empty string
+    if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+      return Promise.reject(
+        new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`)
+      );
+    }
+    
     return api.put<ApiResponse<{
       id: string;
       type: 'permanent' | 'ad_hoc';

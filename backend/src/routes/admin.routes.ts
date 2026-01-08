@@ -7,6 +7,13 @@ const router = Router();
 
 // All admin routes require authentication and admin role
 router.get(
+  '/stats',
+  authenticate,
+  requireRole('admin'),
+  adminController.getAdminStats.bind(adminController)
+);
+
+router.get(
   '/practitioners',
   authenticate,
   requireRole('admin'),
