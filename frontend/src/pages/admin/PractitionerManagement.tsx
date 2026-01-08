@@ -44,7 +44,7 @@ export const PractitionerManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Membership form state
   const [membershipType, setMembershipType] = useState<'permanent' | 'ad_hoc' | ''>('');
@@ -70,10 +70,10 @@ export const PractitionerManagement: React.FC = () => {
     }
   }, []);
 
-  const fetchPractitioners = useCallback(async () => {
+  const fetchPractitioners = useCallback(async (query?: string) => {
     try {
       setLoading(true);
-      const response = await adminApi.getPractitioners(searchQuery || undefined);
+      const response = await adminApi.getPractitioners(query || undefined);
       if (response.data.success && response.data.data) {
         setPractitioners(response.data.data);
       }
@@ -85,28 +85,11 @@ export const PractitionerManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, setMessageWithTimeout]);
+  }, [setMessageWithTimeout]);
 
   useEffect(() => {
-    // Initial fetch with empty search query
-    const fetchInitial = async () => {
-      try {
-        setLoading(true);
-        const response = await adminApi.getPractitioners();
-        if (response.data.success && response.data.data) {
-          setPractitioners(response.data.data);
-        }
-      } catch (error: any) {
-        setMessageWithTimeout({
-          type: 'error',
-          text: error.response?.data?.error || 'Failed to load practitioners',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchInitial();
-  }, []);
+    fetchPractitioners();
+  }, [fetchPractitioners]);
 
   useEffect(() => {
     if (selectedPractitioner) {
@@ -125,7 +108,7 @@ export const PractitionerManagement: React.FC = () => {
   }, []);
 
   const handleSearch = () => {
-    fetchPractitioners();
+    fetchPractitioners(searchQuery);
   };
 
   const handleSelectPractitioner = async (practitionerId: string) => {
@@ -159,29 +142,43 @@ export const PractitionerManagement: React.FC = () => {
       setMessageWithTimeout(null);
 
       const updateData: {
-        type?: 'permanent' | 'ad_hoc';
+        type?: 'permanent' | 'ad_hoc' | null;
         marketingAddon?: boolean;
       } = {};
 
-      if (membershipType) {
-        updateData.type = membershipType as 'permanent' | 'ad_hoc';
-      }
-
-      if (selectedPractitioner.membership) {
-        // Only update marketing add-on if it changed
-        if (marketingAddon !== selectedPractitioner.membership.marketingAddon) {
-          updateData.marketingAddon = marketingAddon;
+      // Handle membership removal (falsy membershipType)
+      if (!membershipType) {
+        // If there's an existing membership, remove it
+        if (selectedPractitioner.membership) {
+          updateData.type = null;
+        } else {
+          // No membership to remove, nothing to do
+          setSaving(false);
+          return;
         }
       } else {
-        // Creating new membership, include marketing add-on
-        updateData.marketingAddon = marketingAddon;
+        // Create or update membership
+        updateData.type = membershipType as 'permanent' | 'ad_hoc';
+        
+        if (selectedPractitioner.membership) {
+          // Only update marketing add-on if it changed
+          if (marketingAddon !== selectedPractitioner.membership.marketingAddon) {
+            updateData.marketingAddon = marketingAddon;
+          }
+        } else {
+          // Creating new membership, include marketing add-on
+          updateData.marketingAddon = marketingAddon;
+        }
       }
 
       const response = await adminApi.updateMembership(selectedPractitioner.id, updateData);
-      if (response.data.success && response.data.data) {
-        setMessageWithTimeout({ type: 'success', text: 'Membership updated successfully' });
+      if (response.data.success) {
+        const messageText = updateData.type === null 
+          ? 'Membership removed successfully' 
+          : 'Membership updated successfully';
+        setMessageWithTimeout({ type: 'success', text: messageText });
         // Refresh practitioner list and details
-        await fetchPractitioners();
+        await fetchPractitioners(searchQuery);
         await handleSelectPractitioner(selectedPractitioner.id);
       }
     } catch (error: any) {
@@ -362,7 +359,7 @@ export const PractitionerManagement: React.FC = () => {
 
                   <Button
                     onClick={handleSaveMembership}
-                    disabled={saving || !membershipType}
+                    disabled={saving}
                     className="w-full"
                   >
                     {saving ? 'Saving...' : 'Save Membership'}
