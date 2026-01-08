@@ -129,6 +129,7 @@ export const adminApi = {
       firstName: string;
       lastName: string;
       membership: {
+        id?: string;
         type: 'permanent' | 'ad_hoc';
         marketingAddon: boolean;
       } | null;
@@ -136,6 +137,13 @@ export const adminApi = {
   },
 
   getPractitioner: (userId: string) => {
+    // Validate userId: must be a non-empty string
+    if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+      return Promise.reject(
+        new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`)
+      );
+    }
+    
     return api.get<ApiResponse<{
       id: string;
       email: string;
@@ -144,7 +152,7 @@ export const adminApi = {
       phone?: string;
       role: string;
       membership: {
-        id: string;
+        id?: string;
         type: 'permanent' | 'ad_hoc';
         marketingAddon: boolean;
       } | null;

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { AccessDenied } from '@/components/AccessDenied';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,7 @@ interface Practitioner {
   firstName: string;
   lastName: string;
   membership: {
+    id?: string;
     type: 'permanent' | 'ad_hoc';
     marketingAddon: boolean;
   } | null;
@@ -32,11 +34,6 @@ interface Practitioner {
 interface PractitionerDetail extends Practitioner {
   phone?: string;
   role: string;
-  membership: {
-    id: string;
-    type: 'permanent' | 'ad_hoc';
-    marketingAddon: boolean;
-  } | null;
 }
 
 export const PractitionerManagement: React.FC = () => {
@@ -47,13 +44,68 @@ export const PractitionerManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Membership form state
   const [membershipType, setMembershipType] = useState<'permanent' | 'ad_hoc' | ''>('');
   const [marketingAddon, setMarketingAddon] = useState(false);
 
+  // Helper function to set message and clear any existing timeout
+  const setMessageWithTimeout = useCallback((message: { type: 'success' | 'error'; text: string } | null, timeoutMs?: number) => {
+    // Clear any existing timeout before setting a new message
+    if (messageTimeoutRef.current) {
+      clearTimeout(messageTimeoutRef.current);
+      messageTimeoutRef.current = null;
+    }
+    setMessage(message);
+    // Only auto-clear success messages, or if explicitly requested
+    if (message && (message.type === 'success' || timeoutMs !== undefined)) {
+      const timeout = timeoutMs ?? (message.type === 'success' ? 3000 : undefined);
+      if (timeout) {
+        messageTimeoutRef.current = setTimeout(() => {
+          setMessage(null);
+          messageTimeoutRef.current = null;
+        }, timeout);
+      }
+    }
+  }, []);
+
+  const fetchPractitioners = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await adminApi.getPractitioners(searchQuery || undefined);
+      if (response.data.success && response.data.data) {
+        setPractitioners(response.data.data);
+      }
+    } catch (error: any) {
+      setMessageWithTimeout({
+        type: 'error',
+        text: error.response?.data?.error || 'Failed to load practitioners',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, setMessageWithTimeout]);
+
   useEffect(() => {
-    fetchPractitioners();
+    // Initial fetch with empty search query
+    const fetchInitial = async () => {
+      try {
+        setLoading(true);
+        const response = await adminApi.getPractitioners();
+        if (response.data.success && response.data.data) {
+          setPractitioners(response.data.data);
+        }
+      } catch (error: any) {
+        setMessageWithTimeout({
+          type: 'error',
+          text: error.response?.data?.error || 'Failed to load practitioners',
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchInitial();
   }, []);
 
   useEffect(() => {
@@ -63,22 +115,14 @@ export const PractitionerManagement: React.FC = () => {
     }
   }, [selectedPractitioner]);
 
-  const fetchPractitioners = async () => {
-    try {
-      setLoading(true);
-      const response = await adminApi.getPractitioners(searchQuery || undefined);
-      if (response.data.success && response.data.data) {
-        setPractitioners(response.data.data);
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
       }
-    } catch (error: any) {
-      setMessage({
-        type: 'error',
-        text: error.response?.data?.error || 'Failed to load practitioners',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+  }, []);
 
   const handleSearch = () => {
     fetchPractitioners();
@@ -91,7 +135,7 @@ export const PractitionerManagement: React.FC = () => {
         setSelectedPractitioner(response.data.data);
       }
     } catch (error: any) {
-      setMessage({
+      setMessageWithTimeout({
         type: 'error',
         text: error.response?.data?.error || 'Failed to load practitioner details',
       });
@@ -103,7 +147,7 @@ export const PractitionerManagement: React.FC = () => {
 
     // Validate marketing add-on can only be enabled for permanent members
     if (marketingAddon && membershipType !== 'permanent') {
-      setMessage({
+      setMessageWithTimeout({
         type: 'error',
         text: 'Marketing add-on can only be enabled for permanent members',
       });
@@ -112,7 +156,7 @@ export const PractitionerManagement: React.FC = () => {
 
     try {
       setSaving(true);
-      setMessage(null);
+      setMessageWithTimeout(null);
 
       const updateData: {
         type?: 'permanent' | 'ad_hoc';
@@ -135,14 +179,13 @@ export const PractitionerManagement: React.FC = () => {
 
       const response = await adminApi.updateMembership(selectedPractitioner.id, updateData);
       if (response.data.success && response.data.data) {
-        setMessage({ type: 'success', text: 'Membership updated successfully' });
+        setMessageWithTimeout({ type: 'success', text: 'Membership updated successfully' });
         // Refresh practitioner list and details
         await fetchPractitioners();
         await handleSelectPractitioner(selectedPractitioner.id);
-        setTimeout(() => setMessage(null), 3000);
       }
     } catch (error: any) {
-      setMessage({
+      setMessageWithTimeout({
         type: 'error',
         text: error.response?.data?.error || 'Failed to update membership',
       });
@@ -152,13 +195,7 @@ export const PractitionerManagement: React.FC = () => {
   };
 
   if (user?.role !== 'admin') {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-red-500">Access denied. Admin role required.</p>
-        </div>
-      </MainLayout>
-    );
+    return <AccessDenied />;
   }
 
   return (
@@ -199,7 +236,7 @@ export const PractitionerManagement: React.FC = () => {
                   placeholder="Search by name or email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 />
                 <Button onClick={handleSearch} disabled={loading}>
                   <Icon name="search" size={18} className="mr-2" />
@@ -320,12 +357,6 @@ export const PractitionerManagement: React.FC = () => {
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Marketing add-on is only available for permanent members
                       </p>
-                    </div>
-                  )}
-
-                  {membershipType === 'ad_hoc' && marketingAddon && (
-                    <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg text-sm text-yellow-800 dark:text-yellow-200">
-                      Marketing add-on will be disabled when membership type is set to ad-hoc
                     </div>
                   )}
 

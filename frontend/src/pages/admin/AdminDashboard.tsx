@@ -32,16 +32,6 @@ export const AdminDashboard: React.FC = () => {
     }
   }, [user]);
 
-  if (user?.role !== 'admin') {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-red-500">Access denied. Admin role required.</p>
-        </div>
-      </MainLayout>
-    );
-  }
-
   return (
     <MainLayout>
       <div className="space-y-6">

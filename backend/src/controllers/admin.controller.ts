@@ -2,7 +2,7 @@ import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
 import { users, memberships } from '../db/schema';
-import { eq, and, or, like } from 'drizzle-orm';
+import { eq, and, or, like, SQL } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 
@@ -13,9 +13,7 @@ const updateMembershipSchema = z.object({
   (data) => {
     // If marketingAddon is being set to true, type must be permanent
     if (data.marketingAddon === true && data.type !== 'permanent') {
-      // If type is not being updated, we need to check existing membership
-      // This will be validated in the controller
-      return true; // Allow it, we'll check in controller
+      return false;
     }
     return true;
   },
@@ -32,18 +30,19 @@ export class AdminController {
       const searchQuery = req.query.search as string | undefined;
 
       // Build where conditions
-      const whereConditions = [eq(users.role, 'practitioner')];
+      const whereConditions: SQL<unknown>[] = [eq(users.role, 'practitioner')];
       
       // Add search filter if provided
       if (searchQuery && searchQuery.trim()) {
         const searchTerm = `%${searchQuery.trim()}%`;
-        whereConditions.push(
-          or(
-            like(users.email, searchTerm),
-            like(users.firstName, searchTerm),
-            like(users.lastName, searchTerm)
-          )!
+        const searchCondition = or(
+          like(users.email, searchTerm),
+          like(users.firstName, searchTerm),
+          like(users.lastName, searchTerm)
         );
+        if (searchCondition) {
+          whereConditions.push(searchCondition);
+        }
       }
 
       // Build query
@@ -227,7 +226,7 @@ export class AdminController {
         await db.insert(memberships).values({
           userId,
           type: data.type,
-          marketingAddon: data.marketingAddon === true ? true : false,
+          marketingAddon: data.marketingAddon ?? false,
         });
       }
 
@@ -236,12 +235,19 @@ export class AdminController {
         where: eq(memberships.userId, userId),
       });
 
+      if (!updatedMembership) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to retrieve updated membership',
+        });
+      }
+
       res.status(200).json({
         success: true,
         data: {
-          id: updatedMembership!.id,
-          type: updatedMembership!.type,
-          marketingAddon: updatedMembership!.marketingAddon,
+          id: updatedMembership.id,
+          type: updatedMembership.type,
+          marketingAddon: updatedMembership.marketingAddon,
         },
       });
     } catch (error: unknown) {
