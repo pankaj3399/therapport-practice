@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { AccessDenied } from '@/components/AccessDenied';
@@ -46,9 +46,7 @@ export const AdminDashboard: React.FC = () => {
       <div className="space-y-6">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
-          <p className="text-slate-500 dark:text-slate-400">
-            Manage practitioners and memberships
-          </p>
+          <p className="text-slate-500 dark:text-slate-400">Manage practitioners and memberships</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -61,18 +59,12 @@ export const AdminDashboard: React.FC = () => {
               {statsError ? (
                 <div className="space-y-2">
                   <div className="text-sm text-red-600 dark:text-red-400">{statsError}</div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={fetchStats}
-                  >
+                  <Button variant="outline" size="sm" onClick={fetchStats}>
                     Retry
                   </Button>
                 </div>
               ) : (
-                <div className="text-2xl font-bold">
-                  {loading ? '...' : practitionerCount ?? 0}
-                </div>
+                <div className="text-2xl font-bold">{loading ? '...' : practitionerCount ?? 0}</div>
               )}
             </CardContent>
           </Card>
@@ -98,4 +90,3 @@ export const AdminDashboard: React.FC = () => {
     </MainLayout>
   );
 };
-

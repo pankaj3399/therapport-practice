@@ -57,6 +57,7 @@ export const memberships = pgTable('memberships', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id')
     .notNull()
+    .unique()
     .references(() => users.id, { onDelete: 'cascade' }),
   type: membershipTypeEnum('type').notNull(),
   marketingAddon: boolean('marketing_addon').notNull().default(false),

@@ -236,6 +236,17 @@ export class AdminController {
         where: eq(memberships.userId, userId),
       });
 
+      // Additional validation: if marketingAddon is true and type is undefined,
+      // verify the current membership type is 'permanent'
+      if (data.marketingAddon === true && data.type === undefined) {
+        if (!currentMembership || currentMembership.type !== 'permanent') {
+          return res.status(400).json({
+            success: false,
+            error: 'Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.',
+          });
+        }
+      }
+
       // Handle membership deletion (type: null)
       if (data.type === null && currentMembership) {
         await db.delete(memberships).where(eq(memberships.id, currentMembership.id));
