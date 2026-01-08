@@ -313,9 +313,9 @@ export class AdminController {
           });
         }
 
-         const [newMembership] = await db
-
         const [newMembership] = await db
+          .insert(memberships)
+          .values({
           .insert(memberships)
           .values({
             userId,

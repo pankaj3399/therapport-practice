@@ -15,7 +15,7 @@ export const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     setLoading(true);
     setStatsError(null);
     try {
@@ -29,13 +29,13 @@ export const AdminDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchStats();
     }
-  }, [user]);
+  }, [user?.role, fetchStats]);
 
   if (user?.role !== 'admin') {
     return <AccessDenied />;
