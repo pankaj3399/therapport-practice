@@ -15,22 +15,23 @@ export const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      setStatsError(null);
-      try {
-        const response = await adminApi.getAdminStats();
-        if (response.data.success && response.data.data) {
-          setPractitionerCount(response.data.data.practitionerCount);
-        }
-      } catch (error) {
-        console.error('Failed to fetch practitioner count:', error);
-        setStatsError('Failed to load statistics. Please try again.');
-      } finally {
-        setLoading(false);
+  const fetchStats = async () => {
+    setLoading(true);
+    setStatsError(null);
+    try {
+      const response = await adminApi.getAdminStats();
+      if (response.data.success && response.data.data) {
+        setPractitionerCount(response.data.data.practitionerCount);
       }
-    };
+    } catch (error) {
+      console.error('Failed to fetch practitioner count:', error);
+      setStatsError('Failed to load statistics. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     if (user?.role === 'admin') {
       fetchStats();
     }
@@ -63,23 +64,7 @@ export const AdminDashboard: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      setLoading(true);
-                      setStatsError(null);
-                      adminApi.getAdminStats()
-                        .then((response) => {
-                          if (response.data.success && response.data.data) {
-                            setPractitionerCount(response.data.data.practitionerCount);
-                          }
-                        })
-                        .catch((error) => {
-                          console.error('Failed to fetch practitioner count:', error);
-                          setStatsError('Failed to load statistics. Please try again.');
-                        })
-                        .finally(() => {
-                          setLoading(false);
-                        });
-                    }}
+                    onClick={fetchStats}
                   >
                     Retry
                   </Button>

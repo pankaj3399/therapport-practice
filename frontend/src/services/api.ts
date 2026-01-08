@@ -119,6 +119,13 @@ api.interceptors.response.use(
   }
 );
 
+// Helper function to validate userId
+const validateUserId = (userId: string): void => {
+  if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+    throw new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`);
+  }
+};
+
 // Admin API methods
 export const adminApi = {
   getAdminStats: () => {
@@ -143,11 +150,10 @@ export const adminApi = {
   },
 
   getPractitioner: (userId: string) => {
-    // Validate userId: must be a non-empty string
-    if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
-      return Promise.reject(
-        new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`)
-      );
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
     }
     
     return api.get<ApiResponse<{
@@ -169,15 +175,15 @@ export const adminApi = {
     type?: 'permanent' | 'ad_hoc' | null;
     marketingAddon?: boolean;
   }) => {
-    // Validate userId: must be a non-empty string
-    if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
-      return Promise.reject(
-        new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`)
-      );
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
     }
     
     // Validate business rule: marketingAddon can only be true when type === 'permanent'
-    if (data.marketingAddon === true && data.type !== 'permanent') {
+    // Only validate when type is explicitly provided to allow partial updates
+    if (data.marketingAddon === true && data.type !== undefined && data.type !== 'permanent') {
       return Promise.reject(
         new Error('Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.')
       );

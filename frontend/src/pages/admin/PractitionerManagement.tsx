@@ -46,6 +46,7 @@ export const PractitionerManagement: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Membership form state
   const [membershipType, setMembershipType] = useState<'permanent' | 'ad_hoc' | ''>('');
@@ -99,11 +100,14 @@ export const PractitionerManagement: React.FC = () => {
     }
   }, [selectedPractitioner]);
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (messageTimeoutRef.current) {
         clearTimeout(messageTimeoutRef.current);
+      }
+      if (saveStatusTimerRef.current) {
+        clearTimeout(saveStatusTimerRef.current);
       }
     };
   }, []);
@@ -184,7 +188,14 @@ export const PractitionerManagement: React.FC = () => {
         await fetchPractitioners(searchQuery);
         await handleSelectPractitioner(selectedPractitioner.id);
         // Reset save status after a brief delay
-        setTimeout(() => setSaveStatus('idle'), 2000);
+        // Clear any existing timer before creating a new one
+        if (saveStatusTimerRef.current) {
+          clearTimeout(saveStatusTimerRef.current);
+        }
+        saveStatusTimerRef.current = setTimeout(() => {
+          setSaveStatus('idle');
+          saveStatusTimerRef.current = null;
+        }, 2000);
       }
     } catch (error: any) {
       setSaveStatus('idle');
