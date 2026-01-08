@@ -43,6 +43,7 @@ export const PractitionerManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -139,6 +140,7 @@ export const PractitionerManagement: React.FC = () => {
 
     try {
       setSaving(true);
+      setSaveStatus('saving');
       setMessageWithTimeout(null);
 
       const updateData: {
@@ -173,6 +175,7 @@ export const PractitionerManagement: React.FC = () => {
 
       const response = await adminApi.updateMembership(selectedPractitioner.id, updateData);
       if (response.data.success) {
+        setSaveStatus('saved');
         const messageText = updateData.type === null 
           ? 'Membership removed successfully' 
           : 'Membership updated successfully';
@@ -180,8 +183,11 @@ export const PractitionerManagement: React.FC = () => {
         // Refresh practitioner list and details
         await fetchPractitioners(searchQuery);
         await handleSelectPractitioner(selectedPractitioner.id);
+        // Reset save status after a brief delay
+        setTimeout(() => setSaveStatus('idle'), 2000);
       }
     } catch (error: any) {
+      setSaveStatus('idle');
       setMessageWithTimeout({
         type: 'error',
         text: error.response?.data?.error || 'Failed to update membership',
@@ -242,9 +248,9 @@ export const PractitionerManagement: React.FC = () => {
               </div>
 
               {loading ? (
-                <div className="text-center py-8 text-slate-500">Loading...</div>
+                <div className="text-center py-8 text-slate-500" role="status" aria-live="polite" aria-atomic="true">Loading...</div>
               ) : practitioners.length === 0 ? (
-                <div className="text-center py-8 text-slate-500">No practitioners found</div>
+                <div className="text-center py-8 text-slate-500" role="status" aria-live="polite" aria-atomic="true">No practitioners found</div>
               ) : (
                 <div className="border rounded-lg overflow-hidden">
                   <Table>
@@ -357,13 +363,27 @@ export const PractitionerManagement: React.FC = () => {
                     </div>
                   )}
 
-                  <Button
-                    onClick={handleSaveMembership}
-                    disabled={saving}
-                    className="w-full"
-                  >
-                    {saving ? 'Saving...' : 'Save Membership'}
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleSaveMembership}
+                      disabled={saving}
+                      className="w-full"
+                      aria-busy={saving}
+                    >
+                      {saving ? 'Saving...' : 'Save Membership'}
+                    </Button>
+                    {saveStatus !== 'idle' && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        aria-atomic="true"
+                        className="text-sm text-center text-slate-600 dark:text-slate-400"
+                      >
+                        {saveStatus === 'saving' && 'Saving…'}
+                        {saveStatus === 'saved' && 'Saved'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-8 text-slate-500">

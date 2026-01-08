@@ -176,6 +176,13 @@ export const adminApi = {
       );
     }
     
+    // Validate business rule: marketingAddon can only be true when type === 'permanent'
+    if (data.marketingAddon === true && data.type !== 'permanent') {
+      return Promise.reject(
+        new Error('Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.')
+      );
+    }
+    
     return api.put<ApiResponse<{
       id: string;
       type: 'permanent' | 'ad_hoc';

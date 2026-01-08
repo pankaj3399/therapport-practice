@@ -13,9 +13,11 @@ export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [practitionerCount, setPractitionerCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchStats = async () => {
+      setStatsError(null);
       try {
         const response = await adminApi.getAdminStats();
         if (response.data.success && response.data.data) {
@@ -23,6 +25,7 @@ export const AdminDashboard: React.FC = () => {
         }
       } catch (error) {
         console.error('Failed to fetch practitioner count:', error);
+        setStatsError('Failed to load statistics. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -54,9 +57,38 @@ export const AdminDashboard: React.FC = () => {
               <Icon name="people" className="h-4 w-4 text-slate-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {loading ? '...' : practitionerCount ?? 0}
-              </div>
+              {statsError ? (
+                <div className="space-y-2">
+                  <div className="text-sm text-red-600 dark:text-red-400">{statsError}</div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setLoading(true);
+                      setStatsError(null);
+                      adminApi.getAdminStats()
+                        .then((response) => {
+                          if (response.data.success && response.data.data) {
+                            setPractitionerCount(response.data.data.practitionerCount);
+                          }
+                        })
+                        .catch((error) => {
+                          console.error('Failed to fetch practitioner count:', error);
+                          setStatsError('Failed to load statistics. Please try again.');
+                        })
+                        .finally(() => {
+                          setLoading(false);
+                        });
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-2xl font-bold">
+                  {loading ? '...' : practitionerCount ?? 0}
+                </div>
+              )}
             </CardContent>
           </Card>
 

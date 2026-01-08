@@ -2,13 +2,21 @@ import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
 import { users, memberships } from '../db/schema';
-import { eq, and, or, like, SQL, count } from 'drizzle-orm';
+import { eq, and, or, ilike, SQL, count } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
   marketingAddon: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  if (data.marketingAddon === true && data.type !== 'permanent') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['marketingAddon'],
+      message: 'marketingAddon can only be true for permanent memberships',
+    });
+  }
 });
 
 export class AdminController {
@@ -19,6 +27,13 @@ export class AdminController {
       }
 
       const searchQuery = req.query.search as string | undefined;
+      
+      // Parse and validate pagination parameters
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limitRaw = parseInt(req.query.limit as string) || 20;
+      const maxLimit = 100;
+      const limit = Math.min(Math.max(1, limitRaw), maxLimit);
+      const offset = (page - 1) * limit;
 
       // Build where conditions
       const whereConditions: SQL<unknown>[] = [eq(users.role, 'practitioner')];
@@ -27,14 +42,24 @@ export class AdminController {
       if (searchQuery && searchQuery.trim()) {
         const searchTerm = `%${searchQuery.trim()}%`;
         const searchCondition = or(
-          like(users.email, searchTerm),
-          like(users.firstName, searchTerm),
-          like(users.lastName, searchTerm)
+          ilike(users.email, searchTerm),
+          ilike(users.firstName, searchTerm),
+          ilike(users.lastName, searchTerm)
         );
         whereConditions.push(searchCondition);
       }
 
-      // Build query
+      // Get total count for pagination metadata
+      const [countResult] = await db
+        .select({ count: count() })
+        .from(users)
+        .leftJoin(memberships, eq(users.id, memberships.userId))
+        .where(and(...whereConditions));
+
+      const totalCount = countResult?.count || 0;
+      const totalPages = Math.ceil(totalCount / limit);
+
+      // Build query with pagination
       const practitioners = await db
         .select({
           id: users.id,
@@ -47,7 +72,9 @@ export class AdminController {
         })
         .from(users)
         .leftJoin(memberships, eq(users.id, memberships.userId))
-        .where(and(...whereConditions));
+        .where(and(...whereConditions))
+        .limit(limit)
+        .offset(offset);
 
       // Format response
       const formattedPractitioners = practitioners.map((p) => ({
@@ -66,6 +93,12 @@ export class AdminController {
       res.status(200).json({
         success: true,
         data: formattedPractitioners,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages,
+        },
       });
     } catch (error: unknown) {
       logger.error(
@@ -277,6 +310,14 @@ export class AdminController {
           return res.status(400).json({
             success: false,
             error: 'Membership type is required when creating a new membership',
+          });
+        }
+
+        // Validate that marketingAddon cannot be true for ad_hoc memberships
+        if (data.type === 'ad_hoc' && data.marketingAddon === true) {
+          return res.status(400).json({
+            success: false,
+            error: 'marketingAddon can only be true for permanent memberships',
           });
         }
 
