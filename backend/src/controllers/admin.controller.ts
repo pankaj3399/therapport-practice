@@ -10,7 +10,7 @@ const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
   marketingAddon: z.boolean().optional(),
 }).superRefine((data, ctx) => {
-  if (data.marketingAddon === true && data.type !== 'permanent') {
+  if (data.marketingAddon === true && data.type !== undefined && data.type !== 'permanent') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['marketingAddon'],
@@ -313,13 +313,7 @@ export class AdminController {
           });
         }
 
-        // Validate that marketingAddon cannot be true for ad_hoc memberships
-        if (data.type === 'ad_hoc' && data.marketingAddon === true) {
-          return res.status(400).json({
-            success: false,
-            error: 'marketingAddon can only be true for permanent memberships',
-          });
-        }
+         const [newMembership] = await db
 
         const [newMembership] = await db
           .insert(memberships)
