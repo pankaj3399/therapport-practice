@@ -160,6 +160,7 @@ export const PractitionerManagement: React.FC = () => {
         } else {
           // No membership to remove, nothing to do
           setSaving(false);
+          setSaveStatus('idle');
           return;
         }
       } else {
@@ -259,9 +260,10 @@ export const PractitionerManagement: React.FC = () => {
               </div>
 
               {loading ? (
-                <div className="text-center py-8 text-slate-500" role="status" aria-live="polite" aria-atomic="true">Loading...</div>
+                <output className="block text-center py-8 text-slate-500" aria-live="polite" aria-atomic="true">Loading...</output>
               ) : practitioners.length === 0 ? (
-                <div className="text-center py-8 text-slate-500" role="status" aria-live="polite" aria-atomic="true">No practitioners found</div>
+                <output className="block text-center py-8 text-slate-500" aria-live="polite" aria-atomic="true">No practitioners found</output>
+              ) : (
               ) : (
                 <div className="border rounded-lg overflow-hidden">
                   <Table>
@@ -281,7 +283,14 @@ export const PractitionerManagement: React.FC = () => {
                             'cursor-pointer',
                             selectedPractitioner?.id === practitioner.id && 'bg-slate-50 dark:bg-slate-900'
                           )}
+                          tabIndex={0}
                           onClick={() => handleSelectPractitioner(practitioner.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleSelectPractitioner(practitioner.id);
+                            }
+                          }}
                         >
                           <TableCell>
                             {practitioner.firstName} {practitioner.lastName}
@@ -384,7 +393,7 @@ export const PractitionerManagement: React.FC = () => {
                       {saving ? 'Saving...' : 'Save Membership'}
                     </Button>
                     {saveStatus !== 'idle' && (
-                      <div
+                      <output
                         role="status"
                         aria-live="polite"
                         aria-atomic="true"
@@ -392,7 +401,7 @@ export const PractitionerManagement: React.FC = () => {
                       >
                         {saveStatus === 'saving' && 'Saving…'}
                         {saveStatus === 'saved' && 'Saved'}
-                      </div>
+                      </output>
                     )}
                   </div>
                 </div>
