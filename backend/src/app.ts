@@ -7,6 +7,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import authRoutes from './routes/auth.routes';
 import practitionerRoutes from './routes/practitioner.routes';
+import adminRoutes from './routes/admin.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { db } from './config/database';
 
@@ -83,6 +84,7 @@ app.get('/health', async (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/practitioner', practitionerRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handling
 app.use(errorHandler);

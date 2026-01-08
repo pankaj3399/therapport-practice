@@ -21,6 +21,11 @@ const navItems: NavItem[] = [
   { name: 'Profile', icon: 'person', path: '/profile', implemented: true },
 ];
 
+const adminNavItems: NavItem[] = [
+  { name: 'Admin Dashboard', icon: 'admin_panel_settings', path: '/admin', implemented: true },
+  { name: 'Practitioners', icon: 'people', path: '/admin/practitioners', implemented: true },
+];
+
 export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
@@ -73,6 +78,41 @@ export const Sidebar: React.FC = () => {
                 </Link>
               );
             })}
+          
+          {/* Admin Navigation - Only visible to admins */}
+          {user?.role === 'admin' && (
+            <>
+              <div className="h-px bg-slate-200 dark:bg-slate-800 my-2" />
+              {adminNavItems
+                .filter((item) => item.implemented === true)
+                .map((item) => {
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors',
+                        isActive
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      )}
+                    >
+                      <Icon
+                        name={item.icon}
+                        className={cn(
+                          isActive && 'icon-fill',
+                          !isActive && 'group-hover:text-primary transition-colors'
+                        )}
+                      />
+                      <span className={cn('text-sm', isActive ? 'font-bold' : 'font-medium')}>
+                        {item.name}
+                      </span>
+                    </Link>
+                  );
+                })}
+            </>
+          )}
         </nav>
       </div>
 

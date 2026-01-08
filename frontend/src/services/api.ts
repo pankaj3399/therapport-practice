@@ -119,5 +119,49 @@ api.interceptors.response.use(
   }
 );
 
+// Admin API methods
+export const adminApi = {
+  getPractitioners: (search?: string) => {
+    const params = search ? { search } : {};
+    return api.get<ApiResponse<Array<{
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      membership: {
+        type: 'permanent' | 'ad_hoc';
+        marketingAddon: boolean;
+      } | null;
+    }>>>('/admin/practitioners', { params });
+  },
+
+  getPractitioner: (userId: string) => {
+    return api.get<ApiResponse<{
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+      role: string;
+      membership: {
+        id: string;
+        type: 'permanent' | 'ad_hoc';
+        marketingAddon: boolean;
+      } | null;
+    }>>(`/admin/practitioners/${userId}`);
+  },
+
+  updateMembership: (userId: string, data: {
+    type?: 'permanent' | 'ad_hoc';
+    marketingAddon?: boolean;
+  }) => {
+    return api.put<ApiResponse<{
+      id: string;
+      type: 'permanent' | 'ad_hoc';
+      marketingAddon: boolean;
+    }>>(`/admin/practitioners/${userId}/membership`, data);
+  },
+};
+
 export default api;
 
