@@ -53,41 +53,47 @@ export const PractitionerManagement: React.FC = () => {
   const [marketingAddon, setMarketingAddon] = useState(false);
 
   // Helper function to set message and clear any existing timeout
-  const setMessageWithTimeout = useCallback((message: { type: 'success' | 'error'; text: string } | null, timeoutMs?: number) => {
-    // Clear any existing timeout before setting a new message
-    if (messageTimeoutRef.current) {
-      clearTimeout(messageTimeoutRef.current);
-      messageTimeoutRef.current = null;
-    }
-    setMessage(message);
-    // Only auto-clear success messages, or if explicitly requested
-    if (message && (message.type === 'success' || timeoutMs !== undefined)) {
-      const timeout = timeoutMs ?? (message.type === 'success' ? 3000 : undefined);
-      if (timeout) {
-        messageTimeoutRef.current = setTimeout(() => {
-          setMessage(null);
-          messageTimeoutRef.current = null;
-        }, timeout);
+  const setMessageWithTimeout = useCallback(
+    (message: { type: 'success' | 'error'; text: string } | null, timeoutMs?: number) => {
+      // Clear any existing timeout before setting a new message
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
+        messageTimeoutRef.current = null;
       }
-    }
-  }, []);
+      setMessage(message);
+      // Only auto-clear success messages, or if explicitly requested
+      if (message && (message.type === 'success' || timeoutMs !== undefined)) {
+        const timeout = timeoutMs ?? (message.type === 'success' ? 3000 : undefined);
+        if (timeout) {
+          messageTimeoutRef.current = setTimeout(() => {
+            setMessage(null);
+            messageTimeoutRef.current = null;
+          }, timeout);
+        }
+      }
+    },
+    []
+  );
 
-  const fetchPractitioners = useCallback(async (query?: string) => {
-    try {
-      setLoading(true);
-      const response = await adminApi.getPractitioners(query || undefined);
-      if (response.data.success && response.data.data) {
-        setPractitioners(response.data.data);
+  const fetchPractitioners = useCallback(
+    async (query?: string) => {
+      try {
+        setLoading(true);
+        const response = await adminApi.getPractitioners(query || undefined);
+        if (response.data.success && response.data.data) {
+          setPractitioners(response.data.data);
+        }
+      } catch (error: any) {
+        setMessageWithTimeout({
+          type: 'error',
+          text: error.response?.data?.error || 'Failed to load practitioners',
+        });
+      } finally {
+        setLoading(false);
       }
-    } catch (error: any) {
-      setMessageWithTimeout({
-        type: 'error',
-        text: error.response?.data?.error || 'Failed to load practitioners',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [setMessageWithTimeout]);
+    },
+    [setMessageWithTimeout]
+  );
 
   useEffect(() => {
     fetchPractitioners();
@@ -166,7 +172,7 @@ export const PractitionerManagement: React.FC = () => {
       } else {
         // Create or update membership
         updateData.type = membershipType as 'permanent' | 'ad_hoc';
-        
+
         if (selectedPractitioner.membership) {
           // Only update marketing add-on if it changed
           if (marketingAddon !== selectedPractitioner.membership.marketingAddon) {
@@ -181,9 +187,10 @@ export const PractitionerManagement: React.FC = () => {
       const response = await adminApi.updateMembership(selectedPractitioner.id, updateData);
       if (response.data.success) {
         setSaveStatus('saved');
-        const messageText = updateData.type === null 
-          ? 'Membership removed successfully' 
-          : 'Membership updated successfully';
+        const messageText =
+          updateData.type === null
+            ? 'Membership removed successfully'
+            : 'Membership updated successfully';
         setMessageWithTimeout({ type: 'success', text: messageText });
         // Refresh practitioner list and details
         await fetchPractitioners(searchQuery);
@@ -260,10 +267,21 @@ export const PractitionerManagement: React.FC = () => {
               </div>
 
               {loading ? (
-                <output className="block text-center py-8 text-slate-500" aria-live="polite" aria-atomic="true">Loading...</output>
+                <output
+                  className="block text-center py-8 text-slate-500"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  Loading...
+                </output>
               ) : practitioners.length === 0 ? (
-                <output className="block text-center py-8 text-slate-500" aria-live="polite" aria-atomic="true">No practitioners found</output>
-              ) : (
+                <output
+                  className="block text-center py-8 text-slate-500"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  No practitioners found
+                </output>
               ) : (
                 <div className="border rounded-lg overflow-hidden">
                   <Table>
@@ -281,7 +299,8 @@ export const PractitionerManagement: React.FC = () => {
                           key={practitioner.id}
                           className={cn(
                             'cursor-pointer',
-                            selectedPractitioner?.id === practitioner.id && 'bg-slate-50 dark:bg-slate-900'
+                            selectedPractitioner?.id === practitioner.id &&
+                              'bg-slate-50 dark:bg-slate-900'
                           )}
                           tabIndex={0}
                           onClick={() => handleSelectPractitioner(practitioner.id)}
@@ -417,4 +436,3 @@ export const PractitionerManagement: React.FC = () => {
     </MainLayout>
   );
 };
-
