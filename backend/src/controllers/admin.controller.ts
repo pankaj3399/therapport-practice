@@ -327,8 +327,6 @@ export class AdminController {
         const [newMembership] = await db
           .insert(memberships)
           .values({
-          .insert(memberships)
-          .values({
             userId,
             type: data.type,
             marketingAddon: data.marketingAddon ?? false,
