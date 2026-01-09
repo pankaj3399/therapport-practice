@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ApiResponse } from '../types';
+import type { DocumentData } from '../hooks/useDocumentUpload';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -126,27 +127,16 @@ const validateUserId = (userId: string): void => {
   }
 };
 
-// Practitioner document metadata type
-export interface PractitionerDocument {
-  id: string;
-  fileName: string;
-  expiryDate: string;
-  documentUrl: string;
-  isExpired: boolean;
-  isExpiringSoon: boolean;
-  daysUntilExpiry: number | null;
-}
-
 // Practitioner API methods
 export const practitionerApi = {
   getInsuranceDocument: (signal?: AbortSignal) => {
-    return api.get<ApiResponse<PractitionerDocument>>('/practitioner/documents/insurance', {
+    return api.get<ApiResponse<DocumentData>>('/practitioner/documents/insurance', {
       signal,
     });
   },
 
   getClinicalDocument: (signal?: AbortSignal) => {
-    return api.get<ApiResponse<PractitionerDocument>>('/practitioner/documents/clinical', {
+    return api.get<ApiResponse<DocumentData>>('/practitioner/documents/clinical', {
       signal,
     });
   },

@@ -20,6 +20,8 @@ import { useNavigate } from 'react-router-dom';
 import { DocumentData } from '@/hooks/useDocumentUpload';
 import axios from 'axios';
 
+type DocumentState = { status: 'loading' } | { status: 'loaded'; data: DocumentData | null };
+
 interface DashboardData {
   freeBookingHours: {
     remaining: number;
@@ -58,8 +60,8 @@ export const Dashboard: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [insuranceDocument, setInsuranceDocument] = useState<DocumentData | null>(null);
-  const [clinicalDocument, setClinicalDocument] = useState<DocumentData | null>(null);
+  const [insuranceDocument, setInsuranceDocument] = useState<DocumentState>({ status: 'loading' });
+  const [clinicalDocument, setClinicalDocument] = useState<DocumentState>({ status: 'loading' });
   const isMountedRef = useRef(true);
   const retryControllerRef = useRef<AbortController | null>(null);
 
@@ -142,59 +144,85 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
+    // Extract only the needed property to avoid unnecessary re-fetches
+    const marketingAddon = user.membership?.marketingAddon ?? false;
+
     // Reset state immediately when user changes
-    setInsuranceDocument(null);
-    setClinicalDocument(null);
+    setInsuranceDocument({ status: 'loading' });
+    setClinicalDocument({ status: 'loading' });
 
     const controller = new AbortController();
     const { signal } = controller;
 
     const fetchDocuments = async () => {
-      // Fetch insurance document
-      try {
-        const insuranceResponse = await practitionerApi.getInsuranceDocument(signal);
-        if (!signal.aborted && insuranceResponse.data.success && insuranceResponse.data.data) {
-          setInsuranceDocument(insuranceResponse.data.data);
-        }
-      } catch (error) {
-        if (signal.aborted) return;
-        
-        if (axios.isAxiosError(error)) {
-          // 404 is expected if no document exists - clear state
-          if (error.response?.status === 404) {
-            setInsuranceDocument(null);
-          } else {
-            console.error('Failed to fetch insurance document:', error);
-          }
-        } else {
-          // Handle non-Axios errors
-          console.error('Failed to fetch insurance document:', error);
-        }
-      }
+      // Prepare fetch promises for parallel execution
+      const fetchPromises: Promise<void>[] = [];
 
-      // Fetch clinical document only if user has marketing add-on
-      if (user.membership?.marketingAddon && !signal.aborted) {
+      // Always fetch insurance document
+      const insurancePromise = (async () => {
         try {
-          const clinicalResponse = await practitionerApi.getClinicalDocument(signal);
-          if (!signal.aborted && clinicalResponse.data.success && clinicalResponse.data.data) {
-            setClinicalDocument(clinicalResponse.data.data);
+          const insuranceResponse = await practitionerApi.getInsuranceDocument(signal);
+          if (!signal.aborted && insuranceResponse.data.success && insuranceResponse.data.data) {
+            setInsuranceDocument({ status: 'loaded', data: insuranceResponse.data.data });
+          } else if (!signal.aborted) {
+            setInsuranceDocument({ status: 'loaded', data: null });
           }
         } catch (error) {
           if (signal.aborted) return;
-          
+
           if (axios.isAxiosError(error)) {
-            // 404 is expected if no document exists - clear state
+            // 404 is expected if no document exists
             if (error.response?.status === 404) {
-              setClinicalDocument(null);
+              setInsuranceDocument({ status: 'loaded', data: null });
             } else {
-              console.error('Failed to fetch clinical document:', error);
+              console.error('Failed to fetch insurance document:', error);
+              setInsuranceDocument({ status: 'loaded', data: null });
             }
           } else {
             // Handle non-Axios errors
-            console.error('Failed to fetch clinical document:', error);
+            console.error('Failed to fetch insurance document:', error);
+            setInsuranceDocument({ status: 'loaded', data: null });
           }
         }
+      })();
+      fetchPromises.push(insurancePromise);
+
+      // Fetch clinical document only if user has marketing add-on
+      if (marketingAddon) {
+        const clinicalPromise = (async () => {
+          try {
+            const clinicalResponse = await practitionerApi.getClinicalDocument(signal);
+            if (!signal.aborted && clinicalResponse.data.success && clinicalResponse.data.data) {
+              setClinicalDocument({ status: 'loaded', data: clinicalResponse.data.data });
+            } else if (!signal.aborted) {
+              setClinicalDocument({ status: 'loaded', data: null });
+            }
+          } catch (error) {
+            if (signal.aborted) return;
+
+            if (axios.isAxiosError(error)) {
+              // 404 is expected if no document exists
+              if (error.response?.status === 404) {
+                setClinicalDocument({ status: 'loaded', data: null });
+              } else {
+                console.error('Failed to fetch clinical document:', error);
+                setClinicalDocument({ status: 'loaded', data: null });
+              }
+            } else {
+              // Handle non-Axios errors
+              console.error('Failed to fetch clinical document:', error);
+              setClinicalDocument({ status: 'loaded', data: null });
+            }
+          }
+        })();
+        fetchPromises.push(clinicalPromise);
+      } else if (!signal.aborted) {
+        // If user doesn't have marketing add-on, mark clinical document as loaded with null
+        setClinicalDocument({ status: 'loaded', data: null });
       }
+
+      // Wait for all fetches to complete (or settle) in parallel
+      await Promise.allSettled(fetchPromises);
     };
 
     fetchDocuments();
@@ -202,7 +230,7 @@ export const Dashboard: React.FC = () => {
     return () => {
       controller.abort();
     };
-  }, [user]);
+  }, [user?.membership?.marketingAddon]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
@@ -317,35 +345,43 @@ export const Dashboard: React.FC = () => {
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
-  const getDocumentBadgeVariant = (document: DocumentData | null): 'success' | 'destructive' | 'warning' => {
-    if (!document) return 'destructive';
-    if (document.isExpired) return 'destructive';
-    if (document.isExpiringSoon) return 'warning';
+  const getDocumentBadgeVariant = (
+    documentState: DocumentState
+  ): 'success' | 'destructive' | 'warning' => {
+    if (documentState.status === 'loading') return 'warning';
+    if (!documentState.data) return 'destructive';
+    if (documentState.data.isExpired) return 'destructive';
+    if (documentState.data.isExpiringSoon) return 'warning';
     return 'success';
   };
 
-  const getDocumentBadgeText = (document: DocumentData | null): string => {
-    if (!document) return 'Not uploaded';
-    if (document.isExpired) return 'Expired';
-    if (document.isExpiringSoon) {
-      return document.daysUntilExpiry !== null 
-        ? `Expires in ${document.daysUntilExpiry} day${document.daysUntilExpiry !== 1 ? 's' : ''}`
+  const getDocumentBadgeText = (documentState: DocumentState): string => {
+    if (documentState.status === 'loading') return 'Loading...';
+    if (!documentState.data) return 'Not uploaded';
+    if (documentState.data.isExpired) return 'Expired';
+    if (documentState.data.isExpiringSoon) {
+      return documentState.data.daysUntilExpiry !== null
+        ? `Expires in ${documentState.data.daysUntilExpiry} day${
+            documentState.data.daysUntilExpiry !== 1 ? 's' : ''
+          }`
         : 'Expiring soon';
     }
-    return `Valid until ${formatDocumentExpiryDate(document.expiryDate)}`;
+    return `Valid until ${formatDocumentExpiryDate(documentState.data.expiryDate)}`;
   };
 
-  const getDocumentIcon = (document: DocumentData | null): string => {
-    if (!document) return 'error';
-    if (document.isExpired) return 'error';
-    if (document.isExpiringSoon) return 'warning';
+  const getDocumentIcon = (documentState: DocumentState): string => {
+    if (documentState.status === 'loading') return 'hourglass_empty';
+    if (!documentState.data) return 'error';
+    if (documentState.data.isExpired) return 'error';
+    if (documentState.data.isExpiringSoon) return 'warning';
     return 'verified';
   };
 
-  const getDocumentIconColor = (document: DocumentData | null): string => {
-    if (!document) return 'text-red-500';
-    if (document.isExpired) return 'text-red-500';
-    if (document.isExpiringSoon) return 'text-orange-500';
+  const getDocumentIconColor = (documentState: DocumentState): string => {
+    if (documentState.status === 'loading') return 'text-slate-500';
+    if (!documentState.data) return 'text-red-500';
+    if (documentState.data.isExpired) return 'text-red-500';
+    if (documentState.data.isExpiringSoon) return 'text-orange-500';
     return 'text-green-500';
   };
 
@@ -431,15 +467,18 @@ export const Dashboard: React.FC = () => {
                     </p>
                   )}
                   {/* Low credit warning */}
-                  {dashboardData.credit.currentMonth.remainingCredit > 0 && 
-                   dashboardData.credit.currentMonth.remainingCredit / dashboardData.credit.currentMonth.monthlyCredit < 0.2 && (
-                    <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
-                      <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
-                      <span className="text-orange-700 dark:text-orange-300 font-medium">
-                        Low credit remaining
-                      </span>
-                    </div>
-                  )}
+                  {dashboardData.credit.currentMonth.remainingCredit > 0 &&
+                    dashboardData.credit.currentMonth.monthlyCredit > 0 &&
+                    dashboardData.credit.currentMonth.remainingCredit /
+                      dashboardData.credit.currentMonth.monthlyCredit <
+                      0.2 && (
+                      <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
+                        <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
+                        <span className="text-orange-700 dark:text-orange-300 font-medium">
+                          Low credit remaining
+                        </span>
+                      </div>
+                    )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-1">
@@ -643,16 +682,16 @@ export const Dashboard: React.FC = () => {
                   {/* Insurance Document */}
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <Icon 
-                        name={getDocumentIcon(insuranceDocument)} 
-                        className={getDocumentIconColor(insuranceDocument)} 
+                      <Icon
+                        name={getDocumentIcon(insuranceDocument)}
+                        className={getDocumentIconColor(insuranceDocument)}
                       />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">
                         Insurance
                       </span>
                     </div>
-                    <Badge 
-                      variant={getDocumentBadgeVariant(insuranceDocument)} 
+                    <Badge
+                      variant={getDocumentBadgeVariant(insuranceDocument)}
                       className="text-center"
                     >
                       {getDocumentBadgeText(insuranceDocument)}
@@ -663,16 +702,16 @@ export const Dashboard: React.FC = () => {
                   {user?.membership?.marketingAddon && (
                     <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                       <div className="flex items-center gap-3">
-                        <Icon 
-                          name={getDocumentIcon(clinicalDocument)} 
-                          className={getDocumentIconColor(clinicalDocument)} 
+                        <Icon
+                          name={getDocumentIcon(clinicalDocument)}
+                          className={getDocumentIconColor(clinicalDocument)}
                         />
                         <span className="text-sm font-medium text-slate-900 dark:text-white">
                           Registration
                         </span>
                       </div>
-                      <Badge 
-                        variant={getDocumentBadgeVariant(clinicalDocument)} 
+                      <Badge
+                        variant={getDocumentBadgeVariant(clinicalDocument)}
                         className="text-center"
                       >
                         {getDocumentBadgeText(clinicalDocument)}
@@ -680,11 +719,7 @@ export const Dashboard: React.FC = () => {
                     </div>
                   )}
 
-                  <Button 
-                    variant="outline" 
-                    className="w-full"
-                    onClick={() => navigate('/profile')}
-                  >
+                  <Button variant="outline" className="w-full" onClick={() => navigate('/profile')}>
                     <Icon name="upload" size={18} className="mr-2" />
                     Upload Documents
                   </Button>
