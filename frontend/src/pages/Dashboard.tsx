@@ -17,7 +17,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
 import api, { practitionerApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import { DocumentData } from '@/hooks/useDocumentUpload';
+import axios from 'axios';
 
 interface DashboardData {
   freeBookingHours: {
@@ -49,16 +50,6 @@ interface DashboardData {
     totalPrice: number;
     status: string;
   }>;
-}
-
-interface DocumentData {
-  id: string;
-  fileName: string;
-  expiryDate: string;
-  documentUrl: string;
-  isExpired: boolean;
-  isExpiringSoon: boolean;
-  daysUntilExpiry: number | null;
 }
 
 export const Dashboard: React.FC = () => {
@@ -151,41 +142,66 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const fetchDocuments = async () => {
-      try {
-        // Fetch insurance document
-        try {
-          const insuranceResponse = await practitionerApi.getInsuranceDocument();
-          if (insuranceResponse.data.success && insuranceResponse.data.data) {
-            setInsuranceDocument(insuranceResponse.data.data);
-          }
-        } catch (error: any) {
-          // 404 is expected if no document exists
-          if (error.response?.status !== 404) {
-            console.error('Failed to fetch insurance document:', error);
-          }
-        }
+    // Reset state immediately when user changes
+    setInsuranceDocument(null);
+    setClinicalDocument(null);
 
-        // Fetch clinical document only if user has marketing add-on
-        if (user.membership?.marketingAddon) {
-          try {
-            const clinicalResponse = await practitionerApi.getClinicalDocument();
-            if (clinicalResponse.data.success && clinicalResponse.data.data) {
-              setClinicalDocument(clinicalResponse.data.data);
-            }
-          } catch (error: any) {
-            // 404 is expected if no document exists
-            if (error.response?.status !== 404) {
-              console.error('Failed to fetch clinical document:', error);
-            }
-          }
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    const fetchDocuments = async () => {
+      // Fetch insurance document
+      try {
+        const insuranceResponse = await practitionerApi.getInsuranceDocument(signal);
+        if (!signal.aborted && insuranceResponse.data.success && insuranceResponse.data.data) {
+          setInsuranceDocument(insuranceResponse.data.data);
         }
       } catch (error) {
-        console.error('Error fetching documents:', error);
+        if (signal.aborted) return;
+        
+        if (axios.isAxiosError(error)) {
+          // 404 is expected if no document exists - clear state
+          if (error.response?.status === 404) {
+            setInsuranceDocument(null);
+          } else {
+            console.error('Failed to fetch insurance document:', error);
+          }
+        } else {
+          // Handle non-Axios errors
+          console.error('Failed to fetch insurance document:', error);
+        }
+      }
+
+      // Fetch clinical document only if user has marketing add-on
+      if (user.membership?.marketingAddon && !signal.aborted) {
+        try {
+          const clinicalResponse = await practitionerApi.getClinicalDocument(signal);
+          if (!signal.aborted && clinicalResponse.data.success && clinicalResponse.data.data) {
+            setClinicalDocument(clinicalResponse.data.data);
+          }
+        } catch (error) {
+          if (signal.aborted) return;
+          
+          if (axios.isAxiosError(error)) {
+            // 404 is expected if no document exists - clear state
+            if (error.response?.status === 404) {
+              setClinicalDocument(null);
+            } else {
+              console.error('Failed to fetch clinical document:', error);
+            }
+          } else {
+            // Handle non-Axios errors
+            console.error('Failed to fetch clinical document:', error);
+          }
+        }
       }
     };
 
     fetchDocuments();
+
+    return () => {
+      controller.abort();
+    };
   }, [user]);
 
   const formatMonthYear = (monthYear: string): string => {

@@ -126,30 +126,29 @@ const validateUserId = (userId: string): void => {
   }
 };
 
+// Practitioner document metadata type
+export interface PractitionerDocument {
+  id: string;
+  fileName: string;
+  expiryDate: string;
+  documentUrl: string;
+  isExpired: boolean;
+  isExpiringSoon: boolean;
+  daysUntilExpiry: number | null;
+}
+
 // Practitioner API methods
 export const practitionerApi = {
-  getInsuranceDocument: () => {
-    return api.get<ApiResponse<{
-      id: string;
-      fileName: string;
-      expiryDate: string;
-      documentUrl: string;
-      isExpired: boolean;
-      isExpiringSoon: boolean;
-      daysUntilExpiry: number | null;
-    }>>('/practitioner/documents/insurance');
+  getInsuranceDocument: (signal?: AbortSignal) => {
+    return api.get<ApiResponse<PractitionerDocument>>('/practitioner/documents/insurance', {
+      signal,
+    });
   },
 
-  getClinicalDocument: () => {
-    return api.get<ApiResponse<{
-      id: string;
-      fileName: string;
-      expiryDate: string;
-      documentUrl: string;
-      isExpired: boolean;
-      isExpiringSoon: boolean;
-      daysUntilExpiry: number | null;
-    }>>('/practitioner/documents/clinical');
+  getClinicalDocument: (signal?: AbortSignal) => {
+    return api.get<ApiResponse<PractitionerDocument>>('/practitioner/documents/clinical', {
+      signal,
+    });
   },
 };
 
