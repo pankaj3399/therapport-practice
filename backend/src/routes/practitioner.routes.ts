@@ -17,6 +17,7 @@ router.put('/documents/clinical/confirm', authenticate, checkMarketingAddon, pra
 router.get('/documents/clinical', authenticate, checkMarketingAddon, practitionerController.getClinicalDocument.bind(practitionerController));
 router.post('/clinical-executor', authenticate, checkMarketingAddon, practitionerController.createOrUpdateClinicalExecutor.bind(practitionerController));
 router.get('/clinical-executor', authenticate, checkMarketingAddon, practitionerController.getClinicalExecutor.bind(practitionerController));
+router.get('/reminders', authenticate, practitionerController.getReminders.bind(practitionerController));
 
 export default router;
 

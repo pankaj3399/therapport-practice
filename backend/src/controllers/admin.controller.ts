@@ -46,7 +46,11 @@ export class AdminController {
           ilike(users.firstName, searchTerm),
           ilike(users.lastName, searchTerm)
         );
-        whereConditions.push(searchCondition);
+        // Note: or() always returns a truthy SQL condition when given arguments,
+        // but TypeScript types it as potentially undefined, so we keep this check for type safety
+        if (searchCondition) {
+          whereConditions.push(searchCondition);
+        }
       }
 
       // Get total count for pagination metadata

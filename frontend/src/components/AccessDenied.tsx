@@ -1,30 +1,16 @@
-import { MainLayout } from '@/components/layout/MainLayout';
-import { Icon } from '@/components/ui/Icon';
+import { MainLayout } from './layout/MainLayout';
 
-interface AccessDeniedProps {
-  message?: string;
-}
-
-export const AccessDenied: React.FC<AccessDeniedProps> = ({ 
-  message = 'Access denied. Admin role required.' 
-}) => {
+export const AccessDenied: React.FC = () => {
   return (
     <MainLayout>
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <h2 className="text-2xl font-semibold text-red-500" role="alert">
-          Access Denied
-        </h2>
-        <div className="flex items-center gap-2">
-          <Icon 
-            name="block" 
-            className="text-red-500" 
-            size={24}
-            aria-hidden="true"
-          />
-          <p className="text-red-500" aria-live="polite">{message}</p>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <h1 className="text-red-500 text-lg font-semibold mb-2">Access Denied</h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            You do not have permission to access this page.
+          </p>
         </div>
       </div>
     </MainLayout>
   );
 };
-

@@ -8,9 +8,10 @@ import morgan from 'morgan';
 import authRoutes from './routes/auth.routes';
 import practitionerRoutes from './routes/practitioner.routes';
 import adminRoutes from './routes/admin.routes';
+import cronRoutes from './routes/cron.routes';
 import { errorHandler } from './middleware/error.middleware';
-import { db } from './config/database';
-
+import cron from 'node-cron';
+import { cronController } from './controllers/cron.controller';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -85,6 +86,7 @@ app.get('/health', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/practitioner', practitionerRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/cron', cronRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -99,5 +101,32 @@ app.listen(PORT, () => {
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🌐 CORS enabled for: all origins (*)`);
 });
+
+// Setup node-cron for Linux servers (only if not on Vercel)
+// Vercel uses its own cron system via vercel.json
+// Note: node-cron is optional - install with: npm install node-cron @types/node-cron
+if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
+  (async () => {
+    try {
+      // Schedule reminder processing every day at midnight
+      cron.schedule('0 0 * * *', async () => {
+        try {
+          const result = await cronController.processRemindersInternal();
+          console.log('✅ Cron job executed successfully:', {
+            processed: result.processed,
+            failed: result.failed,
+            total: result.total,
+          });
+        } catch (error) {
+          console.error('❌ Cron job error:', error);
+        }
+      });
+
+      console.log('✅ node-cron scheduled for reminder processing (daily at midnight)');
+    } catch (error) {
+      console.error('❌ Failed to setup node-cron:', error);
+    }
+  })();
+}
 
 export default app;
