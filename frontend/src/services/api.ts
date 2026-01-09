@@ -126,6 +126,33 @@ const validateUserId = (userId: string): void => {
   }
 };
 
+// Practitioner API methods
+export const practitionerApi = {
+  getInsuranceDocument: () => {
+    return api.get<ApiResponse<{
+      id: string;
+      fileName: string;
+      expiryDate: string;
+      documentUrl: string;
+      isExpired: boolean;
+      isExpiringSoon: boolean;
+      daysUntilExpiry: number | null;
+    }>>('/practitioner/documents/insurance');
+  },
+
+  getClinicalDocument: () => {
+    return api.get<ApiResponse<{
+      id: string;
+      fileName: string;
+      expiryDate: string;
+      documentUrl: string;
+      isExpired: boolean;
+      isExpiringSoon: boolean;
+      daysUntilExpiry: number | null;
+    }>>('/practitioner/documents/clinical');
+  },
+};
+
 // Admin API methods
 export const adminApi = {
   getAdminStats: () => {

@@ -15,7 +15,9 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
-import api from '@/services/api';
+import api, { practitionerApi } from '@/services/api';
+import { useNavigate } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 
 interface DashboardData {
   freeBookingHours: {
@@ -49,11 +51,24 @@ interface DashboardData {
   }>;
 }
 
+interface DocumentData {
+  id: string;
+  fileName: string;
+  expiryDate: string;
+  documentUrl: string;
+  isExpired: boolean;
+  isExpiringSoon: boolean;
+  daysUntilExpiry: number | null;
+}
+
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [insuranceDocument, setInsuranceDocument] = useState<DocumentData | null>(null);
+  const [clinicalDocument, setClinicalDocument] = useState<DocumentData | null>(null);
   const isMountedRef = useRef(true);
   const retryControllerRef = useRef<AbortController | null>(null);
 
@@ -131,6 +146,47 @@ export const Dashboard: React.FC = () => {
       }
     };
   }, [user, fetchDashboardData]);
+
+  // Fetch document status
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchDocuments = async () => {
+      try {
+        // Fetch insurance document
+        try {
+          const insuranceResponse = await practitionerApi.getInsuranceDocument();
+          if (insuranceResponse.data.success && insuranceResponse.data.data) {
+            setInsuranceDocument(insuranceResponse.data.data);
+          }
+        } catch (error: any) {
+          // 404 is expected if no document exists
+          if (error.response?.status !== 404) {
+            console.error('Failed to fetch insurance document:', error);
+          }
+        }
+
+        // Fetch clinical document only if user has marketing add-on
+        if (user.membership?.marketingAddon) {
+          try {
+            const clinicalResponse = await practitionerApi.getClinicalDocument();
+            if (clinicalResponse.data.success && clinicalResponse.data.data) {
+              setClinicalDocument(clinicalResponse.data.data);
+            }
+          } catch (error: any) {
+            // 404 is expected if no document exists
+            if (error.response?.status !== 404) {
+              console.error('Failed to fetch clinical document:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching documents:', error);
+      }
+    };
+
+    fetchDocuments();
+  }, [user]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
@@ -237,6 +293,46 @@ export const Dashboard: React.FC = () => {
     return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
 
+  const formatDocumentExpiryDate = (expiryDate: string): string => {
+    const date = new Date(expiryDate);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const getDocumentBadgeVariant = (document: DocumentData | null): 'success' | 'destructive' | 'warning' => {
+    if (!document) return 'destructive';
+    if (document.isExpired) return 'destructive';
+    if (document.isExpiringSoon) return 'warning';
+    return 'success';
+  };
+
+  const getDocumentBadgeText = (document: DocumentData | null): string => {
+    if (!document) return 'Not uploaded';
+    if (document.isExpired) return 'Expired';
+    if (document.isExpiringSoon) {
+      return document.daysUntilExpiry !== null 
+        ? `Expires in ${document.daysUntilExpiry} day${document.daysUntilExpiry !== 1 ? 's' : ''}`
+        : 'Expiring soon';
+    }
+    return `Valid until ${formatDocumentExpiryDate(document.expiryDate)}`;
+  };
+
+  const getDocumentIcon = (document: DocumentData | null): string => {
+    if (!document) return 'error';
+    if (document.isExpired) return 'error';
+    if (document.isExpiringSoon) return 'warning';
+    return 'verified';
+  };
+
+  const getDocumentIconColor = (document: DocumentData | null): string => {
+    if (!document) return 'text-red-500';
+    if (document.isExpired) return 'text-red-500';
+    if (document.isExpiringSoon) return 'text-orange-500';
+    return 'text-green-500';
+  };
+
   if (loading) {
     return (
       <MainLayout>
@@ -317,6 +413,16 @@ export const Dashboard: React.FC = () => {
                       Next month: £{dashboardData.credit.nextMonth.monthlyCredit.toFixed(2)}{' '}
                       available
                     </p>
+                  )}
+                  {/* Low credit warning */}
+                  {dashboardData.credit.currentMonth.remainingCredit > 0 && 
+                   dashboardData.credit.currentMonth.remainingCredit / dashboardData.credit.currentMonth.monthlyCredit < 0.2 && (
+                    <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
+                      <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
+                      <span className="text-orange-700 dark:text-orange-300 font-medium">
+                        Low credit remaining
+                      </span>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -518,29 +624,51 @@ export const Dashboard: React.FC = () => {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="space-y-4">
+                  {/* Insurance Document */}
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <Icon name="verified" className="text-green-500" />
+                      <Icon 
+                        name={getDocumentIcon(insuranceDocument)} 
+                        className={getDocumentIconColor(insuranceDocument)} 
+                      />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">
                         Insurance
                       </span>
                     </div>
-                    <Badge variant="success" className="text-center">
-                      Valid until 30.09.2026
+                    <Badge 
+                      variant={getDocumentBadgeVariant(insuranceDocument)} 
+                      className="text-center"
+                    >
+                      {getDocumentBadgeText(insuranceDocument)}
                     </Badge>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Icon name="verified" className="text-green-500" />
-                      <span className="text-sm font-medium text-slate-900 dark:text-white">
-                        Registration
-                      </span>
+
+                  {/* Clinical Registration Document (only if marketing add-on) */}
+                  {user?.membership?.marketingAddon && (
+                    <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Icon 
+                          name={getDocumentIcon(clinicalDocument)} 
+                          className={getDocumentIconColor(clinicalDocument)} 
+                        />
+                        <span className="text-sm font-medium text-slate-900 dark:text-white">
+                          Registration
+                        </span>
+                      </div>
+                      <Badge 
+                        variant={getDocumentBadgeVariant(clinicalDocument)} 
+                        className="text-center"
+                      >
+                        {getDocumentBadgeText(clinicalDocument)}
+                      </Badge>
                     </div>
-                    <Badge variant="success" className="text-center">
-                      Valid until 30.09.2026
-                    </Badge>
-                  </div>
-                  <Button variant="outline" className="w-full">
+                  )}
+
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    onClick={() => navigate('/profile')}
+                  >
                     <Icon name="upload" size={18} className="mr-2" />
                     Upload Documents
                   </Button>
