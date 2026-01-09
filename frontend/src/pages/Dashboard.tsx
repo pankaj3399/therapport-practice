@@ -17,7 +17,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
 import api, { practitionerApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
-import { DocumentData } from '@/hooks/useDocumentUpload';
+import type { DocumentData } from '@/types/documents';
 import axios from 'axios';
 
 type DocumentState = { status: 'loading' } | { status: 'loaded'; data: DocumentData | null };
@@ -175,12 +175,18 @@ export const Dashboard: React.FC = () => {
             if (error.response?.status === 404) {
               setInsuranceDocument({ status: 'loaded', data: null });
             } else {
-              console.error('Failed to fetch insurance document:', error);
+              console.error('Failed to fetch insurance document:', {
+                message: error.message,
+                status: error.response?.status,
+                error: error.response?.data?.error,
+              });
               setInsuranceDocument({ status: 'loaded', data: null });
             }
           } else {
             // Handle non-Axios errors
-            console.error('Failed to fetch insurance document:', error);
+            console.error('Failed to fetch insurance document:', {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            });
             setInsuranceDocument({ status: 'loaded', data: null });
           }
         }
@@ -205,12 +211,18 @@ export const Dashboard: React.FC = () => {
               if (error.response?.status === 404) {
                 setClinicalDocument({ status: 'loaded', data: null });
               } else {
-                console.error('Failed to fetch clinical document:', error);
+                console.error('Failed to fetch clinical document:', {
+                  message: error.message,
+                  status: error.response?.status,
+                  error: error.response?.data?.error,
+                });
                 setClinicalDocument({ status: 'loaded', data: null });
               }
             } else {
               // Handle non-Axios errors
-              console.error('Failed to fetch clinical document:', error);
+              console.error('Failed to fetch clinical document:', {
+                message: error instanceof Error ? error.message : 'Unknown error',
+              });
               setClinicalDocument({ status: 'loaded', data: null });
             }
           }
@@ -230,7 +242,7 @@ export const Dashboard: React.FC = () => {
     return () => {
       controller.abort();
     };
-  }, [user?.membership?.marketingAddon]);
+  }, [user?.id, user?.membership?.marketingAddon]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
@@ -350,21 +362,21 @@ export const Dashboard: React.FC = () => {
   ): 'success' | 'destructive' | 'warning' => {
     if (documentState.status === 'loading') return 'warning';
     if (!documentState.data) return 'destructive';
-    if (documentState.data.isExpired) return 'destructive';
-    if (documentState.data.isExpiringSoon) return 'warning';
+    if (documentState.data.isExpired ?? false) return 'destructive';
+    if (documentState.data.isExpiringSoon ?? false) return 'warning';
     return 'success';
   };
 
   const getDocumentBadgeText = (documentState: DocumentState): string => {
     if (documentState.status === 'loading') return 'Loading...';
     if (!documentState.data) return 'Not uploaded';
-    if (documentState.data.isExpired) return 'Expired';
-    if (documentState.data.isExpiringSoon) {
-      return documentState.data.daysUntilExpiry !== null
-        ? `Expires in ${documentState.data.daysUntilExpiry} day${
-            documentState.data.daysUntilExpiry !== 1 ? 's' : ''
-          }`
-        : 'Expiring soon';
+    if (documentState.data.isExpired ?? false) return 'Expired';
+    if (documentState.data.isExpiringSoon ?? false) {
+      const daysUntilExpiry = documentState.data.daysUntilExpiry;
+      if (typeof daysUntilExpiry === 'number' && daysUntilExpiry >= 0) {
+        return `Expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? 's' : ''}`;
+      }
+      return 'Expiring soon';
     }
     return `Valid until ${formatDocumentExpiryDate(documentState.data.expiryDate)}`;
   };

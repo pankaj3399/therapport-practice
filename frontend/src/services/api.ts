@@ -1,6 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ApiResponse } from '../types';
-import type { DocumentData } from '../hooks/useDocumentUpload';
+import type { DocumentData } from '../types/documents';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 

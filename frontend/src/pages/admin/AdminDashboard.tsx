@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/Icon';
 import { adminApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 export const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -24,7 +25,17 @@ export const AdminDashboard: React.FC = () => {
         setPractitionerCount(response.data.data.practitionerCount);
       }
     } catch (error) {
-      console.error('Failed to fetch practitioner count:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('Failed to fetch practitioner count:', {
+          message: error.message,
+          status: error.response?.status,
+          error: error.response?.data?.error,
+        });
+      } else {
+        console.error('Failed to fetch practitioner count:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
       setStatsError('Failed to load statistics. Please try again.');
     } finally {
       setLoading(false);
