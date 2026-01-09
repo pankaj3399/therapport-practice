@@ -10,8 +10,7 @@ import practitionerRoutes from './routes/practitioner.routes';
 import adminRoutes from './routes/admin.routes';
 import cronRoutes from './routes/cron.routes';
 import { errorHandler } from './middleware/error.middleware';
-import { db } from './config/database';
-
+import cron from 'node-cron';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -108,9 +107,6 @@ app.listen(PORT, () => {
 if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   (async () => {
     try {
-      // Dynamic import - node-cron may not be installed
-      // @ts-ignore - node-cron may not be installed, that's okay
-      const cron = await import('node-cron');
       const API_URL = process.env.API_URL || `http://localhost:${PORT}`;
       const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -119,9 +115,8 @@ if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
         return;
       }
 
-      // Schedule reminder processing every hour
-      // @ts-ignore - node-cron types may not be available
-      cron.default.schedule('0 * * * *', async () => {
+      // Schedule reminder processing every day at midnight
+      cron.schedule('0 0 * * *', async () => {
         try {
           const response = await fetch(`${API_URL}/api/admin/cron/process-reminders`, {
             method: 'POST',
@@ -142,7 +137,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
         }
       });
 
-      console.log('✅ node-cron scheduled for reminder processing (every hour)');
+      console.log('✅ node-cron scheduled for reminder processing (daily at midnight)');
     } catch (error) {
       // node-cron not installed - that's okay, use external cron or Vercel cron
       console.log('ℹ️  node-cron not available - use Vercel cron or external cron service');

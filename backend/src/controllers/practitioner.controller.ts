@@ -612,8 +612,7 @@ export class PractitionerController {
 
       // Get pending reminders for the user
       const userId = req.user.id;
-      const pendingReminders = await ReminderService.getPendingReminders();
-      const userReminders = pendingReminders.filter((r) => r.userId === userId);
+      const userReminders = await ReminderService.getPendingReminders(userId);
 
       // Format reminders for response
       const formattedReminders = userReminders.map((r) => {
