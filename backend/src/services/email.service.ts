@@ -23,6 +23,23 @@ export interface EmailChangeConfirmationData {
   oldEmail: string;
 }
 
+export interface DocumentExpiryReminderData {
+  firstName: string;
+  email: string;
+  documentType: 'insurance' | 'clinical_registration';
+  documentName: string;
+  expiryDate: string;
+}
+
+export interface AdminEscalationData {
+  practitionerName: string;
+  practitionerEmail: string;
+  documentType: 'insurance' | 'clinical_registration';
+  documentName: string;
+  expiryDate: string;
+  daysOverdue: number;
+}
+
 export class EmailService {
   async sendWelcomeEmail(data: WelcomeEmailData): Promise<void> {
     const html = `
@@ -148,7 +165,101 @@ export class EmailService {
       html,
     });
   }
+
+  async sendDocumentExpiryReminder(data: DocumentExpiryReminderData): Promise<void> {
+    const documentTypeLabel =
+      data.documentType === 'insurance'
+        ? 'Professional Indemnity Insurance'
+        : 'Clinical Registration';
+    const expiryDateFormatted = new Date(data.expiryDate).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Document Expiry Reminder</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #e74c3c;">Important: Document Expiry Reminder</h1>
+            <p>Hello ${data.firstName},</p>
+            <p>This is a reminder that your <strong>${documentTypeLabel}</strong> document is expiring soon or has expired.</p>
+            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Document:</strong> ${data.documentName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Expiry Date:</strong> ${expiryDateFormatted}</p>
+            </div>
+            <p>Please log in to your Therapport account and upload a new document to maintain compliance.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL || 'https://therapport.co.uk'}/profile" style="background-color: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Update Document</a>
+            </div>
+            <p>If you have any questions, please contact us at info@therapport.co.uk</p>
+            <p>Best regards,<br>The Therapport Team</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: data.email,
+      subject: `Action Required: ${documentTypeLabel} Document Expiry - Therapport`,
+      html,
+    });
+  }
+
+  async sendAdminEscalation(data: AdminEscalationData): Promise<void> {
+    const documentTypeLabel =
+      data.documentType === 'insurance'
+        ? 'Professional Indemnity Insurance'
+        : 'Clinical Registration';
+    const expiryDateFormatted = new Date(data.expiryDate).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Document Expiry Escalation</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #e74c3c;">Action Required: Document Expiry Escalation</h1>
+            <p>Hello Admin,</p>
+            <p>This is an escalation notice regarding an expired document that has not been renewed.</p>
+            <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Practitioner:</strong> ${data.practitionerName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Email:</strong> ${data.practitionerEmail}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Document:</strong> ${data.documentName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Document Type:</strong> ${documentTypeLabel}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Expiry Date:</strong> ${expiryDateFormatted}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Days Overdue:</strong> ${data.daysOverdue}</p>
+            </div>
+            <p>Please follow up with the practitioner to ensure compliance.</p>
+            <p>Best regards,<br>The Therapport System</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Send to admin email (you may want to make this configurable)
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@therapport.co.uk';
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: adminEmail,
+      subject: `Escalation: ${documentTypeLabel} Document Expired - ${data.practitionerName}`,
+      html,
+    });
+  }
 }
 
 export const emailService = new EmailService();
-

@@ -6,6 +6,7 @@ import { eq, and, gte, asc } from 'drizzle-orm';
 import { VoucherService } from '../services/voucher.service';
 import { CreditService } from '../services/credit.service';
 import { FileService } from '../services/file.service';
+import { ReminderService, type DocumentReminderMetadata } from '../services/reminder.service';
 import { logger } from '../utils/logger.util';
 import { calculateExpiryStatus } from '../utils/date.util';
 import { z, ZodError } from 'zod';
@@ -255,6 +256,8 @@ export class PractitionerController {
       if (oldDocument) {
         try {
           await FileService.deleteFile(FileService.extractFilePath(oldDocument.fileUrl));
+          // Cancel old document reminders
+          await ReminderService.cancelDocumentReminders(oldDocument.id);
         } catch (error) {
           logger.error(
             `Failed to delete old ${errorContext} from R2`,
@@ -267,6 +270,17 @@ export class PractitionerController {
             }
           );
         }
+      }
+
+      // Schedule reminders for the new document
+      if (newDocument.expiryDate) {
+        await ReminderService.scheduleDocumentReminders(
+          userId,
+          newDocument.id,
+          documentType,
+          data.fileName,
+          newDocument.expiryDate
+        );
       }
 
       // Generate presigned URL for viewing
@@ -579,6 +593,48 @@ export class PractitionerController {
     } catch (error: unknown) {
       logger.error(
         'Failed to get clinical executor',
+        error,
+        {
+          userId: req.user?.id,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  async getReminders(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Get pending reminders for the user
+      const userId = req.user.id;
+      const pendingReminders = await ReminderService.getPendingReminders();
+      const userReminders = pendingReminders.filter((r) => r.userId === userId);
+
+      // Format reminders for response
+      const formattedReminders = userReminders.map((r) => {
+        const metadata = r.metadata as DocumentReminderMetadata | null;
+        return {
+          id: r.id,
+          notificationType: r.notificationType,
+          scheduledAt: r.scheduledAt,
+          documentType: metadata?.documentType,
+          documentName: metadata?.documentName,
+          expiryDate: metadata?.expiryDate,
+        };
+      });
+
+      res.status(200).json({
+        success: true,
+        data: formattedReminders,
+      });
+    } catch (error: unknown) {
+      logger.error(
+        'Failed to get reminders',
         error,
         {
           userId: req.user?.id,

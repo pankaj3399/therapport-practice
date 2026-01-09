@@ -46,7 +46,9 @@ export class AdminController {
           ilike(users.firstName, searchTerm),
           ilike(users.lastName, searchTerm)
         );
-        whereConditions.push(searchCondition);
+        if (searchCondition) {
+          whereConditions.push(searchCondition);
+        }
       }
 
       // Get total count for pagination metadata

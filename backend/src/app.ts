@@ -8,6 +8,7 @@ import morgan from 'morgan';
 import authRoutes from './routes/auth.routes';
 import practitionerRoutes from './routes/practitioner.routes';
 import adminRoutes from './routes/admin.routes';
+import cronRoutes from './routes/cron.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { db } from './config/database';
 
@@ -85,6 +86,7 @@ app.get('/health', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/practitioner', practitionerRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/cron', cronRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -99,5 +101,53 @@ app.listen(PORT, () => {
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🌐 CORS enabled for: all origins (*)`);
 });
+
+// Setup node-cron for Linux servers (only if not on Vercel)
+// Vercel uses its own cron system via vercel.json
+// Note: node-cron is optional - install with: npm install node-cron @types/node-cron
+if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
+  (async () => {
+    try {
+      // Dynamic import - node-cron may not be installed
+      // @ts-ignore - node-cron may not be installed, that's okay
+      const cron = await import('node-cron');
+      const API_URL = process.env.API_URL || `http://localhost:${PORT}`;
+      const CRON_SECRET = process.env.CRON_SECRET;
+
+      if (!CRON_SECRET) {
+        console.warn('⚠️  CRON_SECRET not set, skipping node-cron setup');
+        return;
+      }
+
+      // Schedule reminder processing every hour
+      // @ts-ignore - node-cron types may not be available
+      cron.default.schedule('0 * * * *', async () => {
+        try {
+          const response = await fetch(`${API_URL}/api/admin/cron/process-reminders`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-cron-secret': CRON_SECRET,
+            },
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Cron job executed successfully:', result);
+          } else {
+            console.error('❌ Cron job failed:', response.status, await response.text());
+          }
+        } catch (error) {
+          console.error('❌ Cron job error:', error);
+        }
+      });
+
+      console.log('✅ node-cron scheduled for reminder processing (every hour)');
+    } catch (error) {
+      // node-cron not installed - that's okay, use external cron or Vercel cron
+      console.log('ℹ️  node-cron not available - use Vercel cron or external cron service');
+    }
+  })();
+}
 
 export default app;
