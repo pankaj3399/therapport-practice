@@ -11,6 +11,7 @@ import adminRoutes from './routes/admin.routes';
 import cronRoutes from './routes/cron.routes';
 import { errorHandler } from './middleware/error.middleware';
 import cron from 'node-cron';
+import { cronController } from './controllers/cron.controller';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -107,31 +108,15 @@ app.listen(PORT, () => {
 if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   (async () => {
     try {
-      const API_URL = process.env.API_URL || `http://localhost:${PORT}`;
-      const CRON_SECRET = process.env.CRON_SECRET;
-
-      if (!CRON_SECRET) {
-        console.warn('⚠️  CRON_SECRET not set, skipping node-cron setup');
-        return;
-      }
-
       // Schedule reminder processing every day at midnight
       cron.schedule('0 0 * * *', async () => {
         try {
-          const response = await fetch(`${API_URL}/api/admin/cron/process-reminders`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-cron-secret': CRON_SECRET,
-            },
+          const result = await cronController.processRemindersInternal();
+          console.log('✅ Cron job executed successfully:', {
+            processed: result.processed,
+            failed: result.failed,
+            total: result.total,
           });
-
-          if (response.ok) {
-            const result = await response.json();
-            console.log('✅ Cron job executed successfully:', result);
-          } else {
-            console.error('❌ Cron job failed:', response.status, await response.text());
-          }
         } catch (error) {
           console.error('❌ Cron job error:', error);
         }
@@ -139,8 +124,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
 
       console.log('✅ node-cron scheduled for reminder processing (daily at midnight)');
     } catch (error) {
-      // node-cron not installed - that's okay, use external cron or Vercel cron
-      console.log('ℹ️  node-cron not available - use Vercel cron or external cron service');
+      console.error('❌ Failed to setup node-cron:', error);
     }
   })();
 }

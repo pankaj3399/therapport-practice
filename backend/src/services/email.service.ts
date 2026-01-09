@@ -264,7 +264,7 @@ export class EmailService {
     await transporter.sendMail({
       from: EMAIL_FROM,
       to: data.email,
-      subject: `Action Required: ${escapedDocumentTypeLabel} Document Expiry - Therapport`,
+      subject: `Action Required: ${documentTypeLabel} Document Expiry - Therapport`,
       html,
     });
   }
@@ -317,7 +317,7 @@ export class EmailService {
     await transporter.sendMail({
       from: EMAIL_FROM,
       to: adminEmail,
-      subject: `Escalation: ${escapedDocumentTypeLabel} Document Expired - ${escapedPractitionerName}`,
+      subject: `Escalation: ${documentTypeLabel} Document Expired - ${data.practitionerName}`,
       html,
     });
   }

@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { emailNotifications, documents } from '../db/schema';
-import { eq, and, lte, gte } from 'drizzle-orm';
+import { eq, and, lte, gte, isNotNull, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 
 export interface DocumentReminderMetadata {
@@ -26,8 +26,10 @@ export class ReminderService {
     expiryDate: string
   ): Promise<void> {
     try {
+      // Create a copy of expiry date to avoid mutation
       const expiry = new Date(expiryDate);
-      expiry.setUTCHours(0, 0, 0, 0);
+      const normalizedExpiry = new Date(expiry);
+      normalizedExpiry.setUTCHours(0, 0, 0, 0);
 
       const metadata: DocumentReminderMetadata = {
         documentId,
@@ -37,35 +39,44 @@ export class ReminderService {
       };
 
       // Reminder 1: On expiry date (to practitioner)
-      const reminder1Date = new Date(expiry);
-      await db.insert(emailNotifications).values({
-        userId,
-        notificationType: `${documentType}_expiry_reminder`,
-        status: 'pending',
-        metadata: metadata,
-        scheduledAt: reminder1Date,
-      });
+      const reminder1Date = new Date(normalizedExpiry);
 
       // Reminder 2: 2 weeks after expiry (escalation to admin)
-      const reminder2Date = new Date(expiry);
-      reminder2Date.setDate(reminder2Date.getDate() + 14);
-      await db.insert(emailNotifications).values({
-        userId,
-        notificationType: `${documentType}_expiry_escalation`,
-        status: 'pending',
-        metadata: metadata,
-        scheduledAt: reminder2Date,
-      });
+      const reminder2Date = new Date(normalizedExpiry);
+      reminder2Date.setUTCDate(reminder2Date.getUTCDate() + 14);
 
       // Reminder 3: 4 weeks after expiry (final admin escalation)
-      const reminder3Date = new Date(expiry);
-      reminder3Date.setDate(reminder3Date.getDate() + 28);
-      await db.insert(emailNotifications).values({
-        userId,
-        notificationType: `${documentType}_expiry_final_escalation`,
-        status: 'pending',
-        metadata: metadata,
-        scheduledAt: reminder3Date,
+      const reminder3Date = new Date(normalizedExpiry);
+      reminder3Date.setUTCDate(reminder3Date.getUTCDate() + 28);
+
+      // Build notification objects
+      const notifications = [
+        {
+          userId,
+          notificationType: `${documentType}_expiry_reminder`,
+          status: 'pending' as const,
+          metadata: metadata,
+          scheduledAt: reminder1Date,
+        },
+        {
+          userId,
+          notificationType: `${documentType}_expiry_escalation`,
+          status: 'pending' as const,
+          metadata: metadata,
+          scheduledAt: reminder2Date,
+        },
+        {
+          userId,
+          notificationType: `${documentType}_expiry_final_escalation`,
+          status: 'pending' as const,
+          metadata: metadata,
+          scheduledAt: reminder3Date,
+        },
+      ];
+
+      // Bulk insert all three reminders atomically in a transaction
+      await db.transaction(async (tx) => {
+        await tx.insert(emailNotifications).values(notifications);
       });
 
       logger.info('Document reminders scheduled', {
@@ -90,27 +101,19 @@ export class ReminderService {
    */
   static async cancelDocumentReminders(documentId: string): Promise<void> {
     try {
-      // Get all pending notifications and filter by documentId in metadata
-      const pendingNotifications = await db.query.emailNotifications.findMany({
-        where: eq(emailNotifications.status, 'pending'),
+      // Bulk delete pending notifications matching documentId in metadata
+      await db
+        .delete(emailNotifications)
+        .where(
+          and(
+            sql`${emailNotifications.metadata} ->> 'documentId' = ${documentId}`,
+            eq(emailNotifications.status, 'pending')
+          )
+        );
+
+      logger.info('Document reminders cancelled', {
+        documentId,
       });
-
-      const notificationsToDelete = pendingNotifications.filter((notif) => {
-        const metadata = notif.metadata as DocumentReminderMetadata | null;
-        return metadata?.documentId === documentId;
-      });
-
-      // Delete each matching notification
-      for (const notif of notificationsToDelete) {
-        await db.delete(emailNotifications).where(eq(emailNotifications.id, notif.id));
-      }
-
-      if (notificationsToDelete.length > 0) {
-        logger.info('Document reminders cancelled', {
-          documentId,
-          cancelledCount: notificationsToDelete.length,
-        });
-      }
     } catch (error) {
       logger.error('Failed to cancel document reminders', error, { documentId });
       // Don't throw - reminder cancellation failure shouldn't break document update
@@ -120,8 +123,9 @@ export class ReminderService {
   /**
    * Get pending reminders that are due to be sent
    * Returns reminders where scheduledAt <= now and status is 'pending'
+   * @param userId - Optional userId to filter reminders by a specific user
    */
-  static async getPendingReminders(): Promise<Array<{
+  static async getPendingReminders(userId?: string): Promise<Array<{
     id: string;
     userId: string | null;
     notificationType: string;
@@ -130,17 +134,23 @@ export class ReminderService {
   }>> {
     const now = new Date();
 
-    // Get all pending notifications and filter by scheduledAt
-    const allPending = await db.query.emailNotifications.findMany({
-      where: eq(emailNotifications.status, 'pending'),
+    // Build where conditions
+    const conditions = [
+      eq(emailNotifications.status, 'pending'),
+      isNotNull(emailNotifications.scheduledAt),
+      lte(emailNotifications.scheduledAt, now),
+    ];
+
+    // Add userId filter if provided
+    if (userId) {
+      conditions.push(eq(emailNotifications.userId, userId));
+    }
+
+    // Get pending notifications that are due (scheduledAt <= now)
+    const dueReminders = await db.query.emailNotifications.findMany({
+      where: and(...conditions),
       orderBy: (notifications, { asc }) => [asc(notifications.scheduledAt)],
       limit: 100, // Process up to 100 reminders per run
-    });
-
-    // Filter to only those where scheduledAt <= now (and scheduledAt is not null)
-    const dueReminders = allPending.filter((r) => {
-      if (!r.scheduledAt) return false;
-      return r.scheduledAt <= now;
     });
 
     return dueReminders.map((r) => ({
