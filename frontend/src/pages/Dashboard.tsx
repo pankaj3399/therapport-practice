@@ -15,7 +15,12 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
-import api from '@/services/api';
+import api, { practitionerApi } from '@/services/api';
+import { useNavigate } from 'react-router-dom';
+import type { DocumentData } from '@/types/documents';
+import axios from 'axios';
+
+type DocumentState = { status: 'loading' } | { status: 'loaded'; data: DocumentData | null };
 
 interface DashboardData {
   freeBookingHours: {
@@ -51,9 +56,12 @@ interface DashboardData {
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [insuranceDocument, setInsuranceDocument] = useState<DocumentState>({ status: 'loading' });
+  const [clinicalDocument, setClinicalDocument] = useState<DocumentState>({ status: 'loading' });
   const isMountedRef = useRef(true);
   const retryControllerRef = useRef<AbortController | null>(null);
 
@@ -131,6 +139,110 @@ export const Dashboard: React.FC = () => {
       }
     };
   }, [user, fetchDashboardData]);
+
+  // Fetch document status
+  useEffect(() => {
+    if (!user) return;
+
+    // Extract only the needed property to avoid unnecessary re-fetches
+    const marketingAddon = user.membership?.marketingAddon ?? false;
+
+    // Reset state immediately when user changes
+    setInsuranceDocument({ status: 'loading' });
+    setClinicalDocument({ status: 'loading' });
+
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    const fetchDocuments = async () => {
+      // Prepare fetch promises for parallel execution
+      const fetchPromises: Promise<void>[] = [];
+
+      // Always fetch insurance document
+      const insurancePromise = (async () => {
+        try {
+          const insuranceResponse = await practitionerApi.getInsuranceDocument(signal);
+          if (!signal.aborted && insuranceResponse.data.success && insuranceResponse.data.data) {
+            setInsuranceDocument({ status: 'loaded', data: insuranceResponse.data.data });
+          } else if (!signal.aborted) {
+            setInsuranceDocument({ status: 'loaded', data: null });
+          }
+        } catch (error) {
+          if (signal.aborted) return;
+
+          if (axios.isAxiosError(error)) {
+            // 404 is expected if no document exists
+            if (error.response?.status === 404) {
+              setInsuranceDocument({ status: 'loaded', data: null });
+            } else {
+              console.error('Failed to fetch insurance document:', {
+                message: error.message,
+                status: error.response?.status,
+                error: error.response?.data?.error,
+              });
+              setInsuranceDocument({ status: 'loaded', data: null });
+            }
+          } else {
+            // Handle non-Axios errors
+            console.error('Failed to fetch insurance document:', {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            });
+            setInsuranceDocument({ status: 'loaded', data: null });
+          }
+        }
+      })();
+      fetchPromises.push(insurancePromise);
+
+      // Fetch clinical document only if user has marketing add-on
+      if (marketingAddon) {
+        const clinicalPromise = (async () => {
+          try {
+            const clinicalResponse = await practitionerApi.getClinicalDocument(signal);
+            if (!signal.aborted && clinicalResponse.data.success && clinicalResponse.data.data) {
+              setClinicalDocument({ status: 'loaded', data: clinicalResponse.data.data });
+            } else if (!signal.aborted) {
+              setClinicalDocument({ status: 'loaded', data: null });
+            }
+          } catch (error) {
+            if (signal.aborted) return;
+
+            if (axios.isAxiosError(error)) {
+              // 404 is expected if no document exists
+              if (error.response?.status === 404) {
+                setClinicalDocument({ status: 'loaded', data: null });
+              } else {
+                console.error('Failed to fetch clinical document:', {
+                  message: error.message,
+                  status: error.response?.status,
+                  error: error.response?.data?.error,
+                });
+                setClinicalDocument({ status: 'loaded', data: null });
+              }
+            } else {
+              // Handle non-Axios errors
+              console.error('Failed to fetch clinical document:', {
+                message: error instanceof Error ? error.message : 'Unknown error',
+              });
+              setClinicalDocument({ status: 'loaded', data: null });
+            }
+          }
+        })();
+        fetchPromises.push(clinicalPromise);
+      } else if (!signal.aborted) {
+        // If user doesn't have marketing add-on, mark clinical document as loaded with null
+        setClinicalDocument({ status: 'loaded', data: null });
+      }
+
+      // Wait for all fetches to complete (or settle) in parallel
+      await Promise.allSettled(fetchPromises);
+    };
+
+    fetchDocuments();
+
+    return () => {
+      controller.abort();
+    };
+  }, [user?.id, user?.membership?.marketingAddon]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
@@ -237,6 +349,54 @@ export const Dashboard: React.FC = () => {
     return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
 
+  const formatDocumentExpiryDate = (expiryDate: string): string => {
+    const date = new Date(expiryDate);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const getDocumentBadgeVariant = (
+    documentState: DocumentState
+  ): 'success' | 'destructive' | 'warning' => {
+    if (documentState.status === 'loading') return 'warning';
+    if (!documentState.data) return 'destructive';
+    if (documentState.data.isExpired ?? false) return 'destructive';
+    if (documentState.data.isExpiringSoon ?? false) return 'warning';
+    return 'success';
+  };
+
+  const getDocumentBadgeText = (documentState: DocumentState): string => {
+    if (documentState.status === 'loading') return 'Loading...';
+    if (!documentState.data) return 'Not uploaded';
+    if (documentState.data.isExpired ?? false) return 'Expired';
+    if (documentState.data.isExpiringSoon ?? false) {
+      const daysUntilExpiry = documentState.data.daysUntilExpiry;
+      if (typeof daysUntilExpiry === 'number' && daysUntilExpiry >= 0) {
+        return `Expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? 's' : ''}`;
+      }
+      return 'Expiring soon';
+    }
+    return `Valid until ${formatDocumentExpiryDate(documentState.data.expiryDate)}`;
+  };
+
+  const getDocumentIcon = (documentState: DocumentState): string => {
+    if (documentState.status === 'loading') return 'hourglass_empty';
+    if (!documentState.data) return 'error';
+    if (documentState.data.isExpired) return 'error';
+    if (documentState.data.isExpiringSoon) return 'warning';
+    return 'verified';
+  };
+
+  const getDocumentIconColor = (documentState: DocumentState): string => {
+    if (documentState.status === 'loading') return 'text-slate-500';
+    if (!documentState.data) return 'text-red-500';
+    if (documentState.data.isExpired) return 'text-red-500';
+    if (documentState.data.isExpiringSoon) return 'text-orange-500';
+    return 'text-green-500';
+  };
+
   if (loading) {
     return (
       <MainLayout>
@@ -318,6 +478,19 @@ export const Dashboard: React.FC = () => {
                       available
                     </p>
                   )}
+                  {/* Low credit warning */}
+                  {dashboardData.credit.currentMonth.remainingCredit > 0 &&
+                    dashboardData.credit.currentMonth.monthlyCredit > 0 &&
+                    dashboardData.credit.currentMonth.remainingCredit /
+                      dashboardData.credit.currentMonth.monthlyCredit <
+                      0.2 && (
+                      <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
+                        <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
+                        <span className="text-orange-700 dark:text-orange-300 font-medium">
+                          Low credit remaining
+                        </span>
+                      </div>
+                    )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-1">
@@ -518,29 +691,47 @@ export const Dashboard: React.FC = () => {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="space-y-4">
+                  {/* Insurance Document */}
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <Icon name="verified" className="text-green-500" />
+                      <Icon
+                        name={getDocumentIcon(insuranceDocument)}
+                        className={getDocumentIconColor(insuranceDocument)}
+                      />
                       <span className="text-sm font-medium text-slate-900 dark:text-white">
                         Insurance
                       </span>
                     </div>
-                    <Badge variant="success" className="text-center">
-                      Valid until 30.09.2026
+                    <Badge
+                      variant={getDocumentBadgeVariant(insuranceDocument)}
+                      className="text-center"
+                    >
+                      {getDocumentBadgeText(insuranceDocument)}
                     </Badge>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Icon name="verified" className="text-green-500" />
-                      <span className="text-sm font-medium text-slate-900 dark:text-white">
-                        Registration
-                      </span>
+
+                  {/* Clinical Registration Document (only if marketing add-on) */}
+                  {user?.membership?.marketingAddon && (
+                    <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Icon
+                          name={getDocumentIcon(clinicalDocument)}
+                          className={getDocumentIconColor(clinicalDocument)}
+                        />
+                        <span className="text-sm font-medium text-slate-900 dark:text-white">
+                          Registration
+                        </span>
+                      </div>
+                      <Badge
+                        variant={getDocumentBadgeVariant(clinicalDocument)}
+                        className="text-center"
+                      >
+                        {getDocumentBadgeText(clinicalDocument)}
+                      </Badge>
                     </div>
-                    <Badge variant="success" className="text-center">
-                      Valid until 30.09.2026
-                    </Badge>
-                  </div>
-                  <Button variant="outline" className="w-full">
+                  )}
+
+                  <Button variant="outline" className="w-full" onClick={() => navigate('/profile')}>
                     <Icon name="upload" size={18} className="mr-2" />
                     Upload Documents
                   </Button>

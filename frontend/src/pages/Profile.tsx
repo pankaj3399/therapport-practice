@@ -12,7 +12,9 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
-import { useDocumentUpload, DocumentData } from '@/hooks/useDocumentUpload';
+import { useDocumentUpload } from '@/hooks/useDocumentUpload';
+import type { DocumentData } from '@/types/documents';
+import axios from 'axios';
 
 export const Profile: React.FC = () => {
   const { user, updateUser } = useAuth();
@@ -72,7 +74,17 @@ export const Profile: React.FC = () => {
       } catch (error: any) {
         // 404 is expected if no document exists yet
         if (error.response?.status !== 404) {
-          console.error('Failed to fetch insurance document:', error);
+          if (axios.isAxiosError(error)) {
+            console.error('Failed to fetch insurance document:', {
+              message: error.message,
+              status: error.response?.status,
+              error: error.response?.data?.error,
+            });
+          } else {
+            console.error('Failed to fetch insurance document:', {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            });
+          }
         }
       }
     };
@@ -109,7 +121,17 @@ export const Profile: React.FC = () => {
       } catch (error: any) {
         // 404 is expected if no document exists yet
         if (error.response?.status !== 404) {
-          console.error('Failed to fetch clinical document:', error);
+          if (axios.isAxiosError(error)) {
+            console.error('Failed to fetch clinical document:', {
+              message: error.message,
+              status: error.response?.status,
+              error: error.response?.data?.error,
+            });
+          } else {
+            console.error('Failed to fetch clinical document:', {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            });
+          }
         }
       }
 
@@ -134,7 +156,17 @@ export const Profile: React.FC = () => {
       } catch (error: any) {
         // 404 is expected if no executor exists yet
         if (error.response?.status !== 404) {
-          console.error('Failed to fetch clinical executor:', error);
+          if (axios.isAxiosError(error)) {
+            console.error('Failed to fetch clinical executor:', {
+              message: error.message,
+              status: error.response?.status,
+              error: error.response?.data?.error,
+            });
+          } else {
+            console.error('Failed to fetch clinical executor:', {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            });
+          }
         }
       }
     };
@@ -676,11 +708,11 @@ export const Profile: React.FC = () => {
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <Icon 
-                              name={insuranceDocument.isExpired ? 'error' : insuranceDocument.isExpiringSoon ? 'warning' : 'verified'} 
+                              name={(insuranceDocument.isExpired ?? false) ? 'error' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'} 
                               className={cn(
-                                insuranceDocument.isExpired 
+                                (insuranceDocument.isExpired ?? false)
                                   ? 'text-red-500' 
-                                  : insuranceDocument.isExpiringSoon 
+                                  : (insuranceDocument.isExpiringSoon ?? false)
                                   ? 'text-orange-500' 
                                   : 'text-green-500'
                               )} 
@@ -690,21 +722,23 @@ export const Profile: React.FC = () => {
                             </span>
                           </div>
                           <Badge 
-                            variant={insuranceDocument.isExpired ? 'destructive' : insuranceDocument.isExpiringSoon ? 'warning' : 'success'}
+                            variant={(insuranceDocument.isExpired ?? false) ? 'destructive' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'success'}
                           >
-                            {insuranceDocument.isExpired 
+                            {(insuranceDocument.isExpired ?? false)
                               ? 'Expired' 
-                              : insuranceDocument.isExpiringSoon 
-                              ? `Expires in ${insuranceDocument.daysUntilExpiry} days`
+                              : (insuranceDocument.isExpiringSoon ?? false)
+                              ? (typeof insuranceDocument.daysUntilExpiry === 'number' && insuranceDocument.daysUntilExpiry >= 0
+                                  ? `Expires in ${insuranceDocument.daysUntilExpiry} days`
+                                  : 'Expiring soon')
                               : `Valid until ${new Date(insuranceDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                           </Badge>
                         </div>
-                        {insuranceDocument.isExpired && (
+                        {(insuranceDocument.isExpired ?? false) && (
                           <p className="text-xs text-red-600 dark:text-red-400 mt-2">
                             Your insurance document has expired. Please upload a new one.
                           </p>
                         )}
-                        {insuranceDocument.isExpiringSoon && !insuranceDocument.isExpired && (
+                        {(insuranceDocument.isExpiringSoon ?? false) && !(insuranceDocument.isExpired ?? false) && (
                           <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
                             Your insurance document is expiring soon. Please upload a new one.
                           </p>
@@ -958,11 +992,11 @@ export const Profile: React.FC = () => {
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                               <Icon 
-                                name={clinicalDocument.isExpired ? 'error' : clinicalDocument.isExpiringSoon ? 'warning' : 'verified'} 
+                                name={(clinicalDocument.isExpired ?? false) ? 'error' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'} 
                                 className={cn(
-                                  clinicalDocument.isExpired 
+                                  (clinicalDocument.isExpired ?? false)
                                     ? 'text-red-500' 
-                                    : clinicalDocument.isExpiringSoon 
+                                    : (clinicalDocument.isExpiringSoon ?? false)
                                     ? 'text-orange-500' 
                                     : 'text-green-500'
                                 )} 
@@ -972,21 +1006,23 @@ export const Profile: React.FC = () => {
                               </span>
                             </div>
                             <Badge 
-                              variant={clinicalDocument.isExpired ? 'destructive' : clinicalDocument.isExpiringSoon ? 'warning' : 'success'}
+                              variant={(clinicalDocument.isExpired ?? false) ? 'destructive' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'success'}
                             >
-                              {clinicalDocument.isExpired 
+                              {(clinicalDocument.isExpired ?? false)
                                 ? 'Expired' 
-                                : clinicalDocument.isExpiringSoon 
-                                ? `Expires in ${clinicalDocument.daysUntilExpiry} days`
+                                : (clinicalDocument.isExpiringSoon ?? false)
+                                ? (typeof clinicalDocument.daysUntilExpiry === 'number' && clinicalDocument.daysUntilExpiry >= 0
+                                    ? `Expires in ${clinicalDocument.daysUntilExpiry} days`
+                                    : 'Expiring soon')
                                 : `Valid until ${new Date(clinicalDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                             </Badge>
                           </div>
-                          {clinicalDocument.isExpired && (
+                          {(clinicalDocument.isExpired ?? false) && (
                             <p className="text-xs text-red-600 dark:text-red-400 mt-2">
                               Your clinical registration document has expired. Please upload a new one.
                             </p>
                           )}
-                          {clinicalDocument.isExpiringSoon && !clinicalDocument.isExpired && (
+                          {(clinicalDocument.isExpiringSoon ?? false) && !(clinicalDocument.isExpired ?? false) && (
                             <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
                               Your clinical registration document is expiring soon. Please upload a new one.
                             </p>

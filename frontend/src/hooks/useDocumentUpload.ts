@@ -1,15 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import api from '@/services/api';
-
-export interface DocumentData {
-  id: string;
-  fileName: string;
-  expiryDate: string;
-  documentUrl: string;
-  isExpired: boolean;
-  isExpiringSoon: boolean;
-  daysUntilExpiry: number | null;
-}
+import type { DocumentData } from '@/types/documents';
 
 interface UseDocumentUploadOptions {
   baseEndpoint: string;

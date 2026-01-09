@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ApiResponse } from '../types';
+import type { DocumentData } from '../types/documents';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -124,6 +125,21 @@ const validateUserId = (userId: string): void => {
   if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
     throw new Error(`Invalid userId parameter: "${userId}". userId must be a non-empty string.`);
   }
+};
+
+// Practitioner API methods
+export const practitionerApi = {
+  getInsuranceDocument: (signal?: AbortSignal) => {
+    return api.get<ApiResponse<DocumentData>>('/practitioner/documents/insurance', {
+      signal,
+    });
+  },
+
+  getClinicalDocument: (signal?: AbortSignal) => {
+    return api.get<ApiResponse<DocumentData>>('/practitioner/documents/clinical', {
+      signal,
+    });
+  },
 };
 
 // Admin API methods
