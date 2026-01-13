@@ -586,8 +586,8 @@ export class AuthController {
       }
 
       // Generate file path for the new photo using FileService
-      const timestamp = Date.now();
-      const filePath = FileService.generateFilePath(req.user.id, 'photos', `${timestamp}-profile.jpg`);
+      const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const filePath = FileService.generateFilePath(req.user.id, 'photos', `${uniqueId}-profile.jpg`);
 
       // Upload directly to R2
       try {

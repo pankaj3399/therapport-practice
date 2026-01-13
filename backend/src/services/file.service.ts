@@ -185,7 +185,11 @@ export class FileService {
       ContentType: contentType,
     });
 
-    await r2Client.send(command);
+    try {
+      await r2Client.send(command);
+    } catch (error: any) {
+      throw new Error(`Failed to upload file to R2: ${error.message}`);
+    }
   }
 
   /**
