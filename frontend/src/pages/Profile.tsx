@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Icon } from '@/components/ui/Icon';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { PhotoCropDialog } from '@/components/PhotoCropDialog';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useDocumentUpload } from '@/hooks/useDocumentUpload';
@@ -188,11 +189,8 @@ export const Profile: React.FC = () => {
     newEmail: '',
   });
 
-  // Photo Upload
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Photo Upload - now using PhotoCropDialog
+  const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
 
   // Insurance Document Upload
   const [insuranceDocument, setInsuranceDocument] = useState<DocumentData | null>(null);
@@ -226,112 +224,6 @@ export const Profile: React.FC = () => {
     const first = firstName?.charAt(0) || '';
     const last = lastName?.charAt(0) || '';
     return `${first}${last}`.toUpperCase() || 'U';
-  };
-
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setMessage({ type: 'error', text: 'Please select an image file' });
-      return;
-    }
-
-    // Validate file size (5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'File size must be less than 5MB' });
-      return;
-    }
-
-    // Create preview and save file for confirmation
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhotoPreview(reader.result as string);
-      setSelectedPhoto(file);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handlePhotoCancel = () => {
-    setPhotoPreview(null);
-    setSelectedPhoto(null);
-    setMessage(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handlePhotoUpload = async (file: File | null) => {
-    // Guard against concurrent uploads
-    if (photoUploading) {
-      return;
-    }
-
-    // Validate file is selected
-    if (!file) {
-      setMessage({ type: 'error', text: 'No file selected' });
-      return;
-    }
-
-    // Set uploading state synchronously before any awaits
-    setPhotoUploading(true);
-    setMessage(null);
-
-    try {
-      // Step 1: Get presigned URL from backend
-      const uploadUrlResponse = await api.post('/auth/profile/photo/upload-url', {
-        filename: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-      });
-
-      if (!uploadUrlResponse.data.success) {
-        throw new Error(uploadUrlResponse.data.error || 'Failed to get upload URL');
-      }
-
-      const { presignedUrl, filePath, oldPhotoPath } = uploadUrlResponse.data.data;
-
-      // Step 2: Upload file directly to R2
-      const uploadResponse = await fetch(presignedUrl, {
-        method: 'PUT',
-        body: file,
-        headers: {
-          'Content-Type': file.type,
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload file to storage');
-      }
-
-      // Step 3: Confirm upload with backend
-      const confirmResponse = await api.put('/auth/profile/photo/confirm', {
-        filePath,
-        oldPhotoPath: oldPhotoPath || undefined,
-      });
-
-      if (confirmResponse.data.success && confirmResponse.data.data) {
-        // Update user in context
-        updateUser(confirmResponse.data.data);
-        setMessage({ type: 'success', text: 'Photo uploaded successfully' });
-        setPhotoPreview(null);
-        setSelectedPhoto(null);
-        // Clear file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        setTimeout(() => setMessage(null), 3000);
-      }
-    } catch (error: any) {
-      setMessage({
-        type: 'error',
-        text: error.response?.data?.error || error.message || 'Failed to upload photo',
-      });
-      // Don't clear preview on error - let user retry or cancel
-    } finally {
-      setPhotoUploading(false);
-    }
   };
 
   const handleInsuranceCancel = () => {
@@ -389,10 +281,10 @@ export const Profile: React.FC = () => {
       const nextOfKinData =
         nextOfKin.name || nextOfKin.phone || nextOfKin.email
           ? {
-              name: nextOfKin.name || undefined,
-              phone: nextOfKin.phone || undefined,
-              email: nextOfKin.email || undefined,
-            }
+            name: nextOfKin.name || undefined,
+            phone: nextOfKin.phone || undefined,
+            email: nextOfKin.email || undefined,
+          }
           : undefined;
 
       const response = await api.put('/auth/profile', {
@@ -535,7 +427,7 @@ export const Profile: React.FC = () => {
                 <div className="flex items-center gap-6 mb-6 pb-6 border-b border-slate-200 dark:border-slate-800">
                   <Avatar className="h-20 w-20">
                     <AvatarImage
-                      src={photoPreview || user?.photoUrl}
+                      src={user?.photoUrl}
                       alt={`${user?.firstName} ${user?.lastName}`}
                     />
                     <AvatarFallback className="bg-primary/10 text-primary text-2xl font-bold">
@@ -546,49 +438,44 @@ export const Profile: React.FC = () => {
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
                       Profile Photo
                     </p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/webp"
-                      onChange={handlePhotoSelect}
-                      className="hidden"
-                      id="photo-upload"
-                      disabled={photoUploading}
-                    />
-                    {photoPreview ? (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => handlePhotoUpload(selectedPhoto)}
-                          disabled={photoUploading || !selectedPhoto}
-                        >
-                          <Icon name="check" size={18} className="mr-2" />
-                          {photoUploading ? 'Uploading...' : 'Confirm Upload'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handlePhotoCancel}
-                          disabled={photoUploading}
-                        >
-                          <Icon name="close" size={18} className="mr-2" />
-                          Cancel
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={photoUploading}
-                      >
-                        <Icon name="photo_camera" size={18} className="mr-2" />
-                        Upload Photo
-                      </Button>
-                    )}
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">
+                      Upload a photo with circular crop, drag to position, and zoom
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPhotoDialogOpen(true)}
+                    >
+                      <Icon name="photo_camera" size={18} className="mr-2" />
+                      {user?.photoUrl ? 'Change Photo' : 'Upload Photo'}
+                    </Button>
                   </div>
                 </div>
+
+                {/* Photo Crop Dialog */}
+                <PhotoCropDialog
+                  open={photoDialogOpen}
+                  onOpenChange={setPhotoDialogOpen}
+                  onSave={async (imageData: string) => {
+                    try {
+                      const response = await api.post('/auth/profile/photo/upload-cropped', {
+                        imageData,
+                      });
+                      if (response?.data?.success && response.data.data) {
+                        updateUser(response.data.data);
+                        setMessage({ type: 'success', text: 'Photo uploaded successfully' });
+                        setTimeout(() => setMessage(null), 3000);
+                      } else {
+                        throw new Error(response?.data?.error || 'Failed to upload photo');
+                      }
+                    } catch (err: any) {
+                      // Re-throw with a meaningful message so PhotoCropDialog can display it
+                      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to upload photo';
+                      throw new Error(errorMessage);
+                    }
+                  }}
+                  currentPhotoUrl={user?.photoUrl}
+                />
 
                 <form onSubmit={handlePersonalInfoSubmit} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -701,36 +588,36 @@ export const Profile: React.FC = () => {
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Professional Indemnity Insurance
                     </h3>
-                    
+
                     {/* Current Insurance Document Status */}
                     {insuranceDocument && (
                       <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
-                            <Icon 
-                              name={(insuranceDocument.isExpired ?? false) ? 'error' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'} 
+                            <Icon
+                              name={(insuranceDocument.isExpired ?? false) ? 'error' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'}
                               className={cn(
                                 (insuranceDocument.isExpired ?? false)
-                                  ? 'text-red-500' 
+                                  ? 'text-red-500'
                                   : (insuranceDocument.isExpiringSoon ?? false)
-                                  ? 'text-orange-500' 
-                                  : 'text-green-500'
-                              )} 
+                                    ? 'text-orange-500'
+                                    : 'text-green-500'
+                              )}
                             />
                             <span className="text-sm font-medium text-slate-900 dark:text-white">
                               {insuranceDocument.fileName}
                             </span>
                           </div>
-                          <Badge 
+                          <Badge
                             variant={(insuranceDocument.isExpired ?? false) ? 'destructive' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'success'}
                           >
                             {(insuranceDocument.isExpired ?? false)
-                              ? 'Expired' 
+                              ? 'Expired'
                               : (insuranceDocument.isExpiringSoon ?? false)
-                              ? (typeof insuranceDocument.daysUntilExpiry === 'number' && insuranceDocument.daysUntilExpiry >= 0
+                                ? (typeof insuranceDocument.daysUntilExpiry === 'number' && insuranceDocument.daysUntilExpiry >= 0
                                   ? `Expires in ${insuranceDocument.daysUntilExpiry} days`
                                   : 'Expiring soon')
-                              : `Valid until ${new Date(insuranceDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                                : `Valid until ${new Date(insuranceDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                           </Badge>
                         </div>
                         {(insuranceDocument.isExpired ?? false) && (
@@ -985,36 +872,36 @@ export const Profile: React.FC = () => {
                       <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                         Clinical Registration Document
                       </h3>
-                      
+
                       {/* Current Document Status */}
                       {clinicalDocument && (
                         <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <Icon 
-                                name={(clinicalDocument.isExpired ?? false) ? 'error' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'} 
+                              <Icon
+                                name={(clinicalDocument.isExpired ?? false) ? 'error' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'}
                                 className={cn(
                                   (clinicalDocument.isExpired ?? false)
-                                    ? 'text-red-500' 
+                                    ? 'text-red-500'
                                     : (clinicalDocument.isExpiringSoon ?? false)
-                                    ? 'text-orange-500' 
-                                    : 'text-green-500'
-                                )} 
+                                      ? 'text-orange-500'
+                                      : 'text-green-500'
+                                )}
                               />
                               <span className="text-sm font-medium text-slate-900 dark:text-white">
                                 {clinicalDocument.fileName}
                               </span>
                             </div>
-                            <Badge 
+                            <Badge
                               variant={(clinicalDocument.isExpired ?? false) ? 'destructive' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'success'}
                             >
                               {(clinicalDocument.isExpired ?? false)
-                                ? 'Expired' 
+                                ? 'Expired'
                                 : (clinicalDocument.isExpiringSoon ?? false)
-                                ? (typeof clinicalDocument.daysUntilExpiry === 'number' && clinicalDocument.daysUntilExpiry >= 0
+                                  ? (typeof clinicalDocument.daysUntilExpiry === 'number' && clinicalDocument.daysUntilExpiry >= 0
                                     ? `Expires in ${clinicalDocument.daysUntilExpiry} days`
                                     : 'Expiring soon')
-                                : `Valid until ${new Date(clinicalDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                                  : `Valid until ${new Date(clinicalDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                             </Badge>
                           </div>
                           {(clinicalDocument.isExpired ?? false) && (

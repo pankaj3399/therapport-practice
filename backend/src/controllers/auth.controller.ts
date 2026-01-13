@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { HeadObjectCommand } from '@aws-sdk/client-s3';
 import { r2Client, R2_BUCKET_NAME } from '../config/r2';
+import { processBase64Image } from '../utils/image.util';
 
 const registerSchema = z.object({
   firstName: z.string().min(1).max(100),
@@ -63,6 +64,47 @@ const photoConfirmSchema = z.object({
   filePath: z.string().min(1),
   oldPhotoPath: z.string().optional(),
 });
+
+// Schema for cropped photo upload
+// Base64 encoding increases size by ~33%, so 10MB file ≈ 14MB base64 chars
+const MAX_BASE64_LENGTH = 14_000_000;
+const croppedPhotoSchema = z.object({
+  imageData: z.string()
+    .min(1, 'Image data is required')
+    .max(MAX_BASE64_LENGTH, 'Image data must not exceed 10MB'),
+});
+
+/**
+ * Helper function to build consistent user response object
+ */
+function buildUserResponse(
+  updatedUser: any,
+  membership: any,
+  photoUrl?: string,
+  photoUrlError?: boolean
+) {
+  return {
+    id: updatedUser.id,
+    email: updatedUser.email,
+    firstName: updatedUser.firstName,
+    lastName: updatedUser.lastName,
+    phone: updatedUser.phone || undefined,
+    photoUrl: photoUrl || undefined,
+    ...(photoUrlError && { photoUrlError: true }),
+    role: updatedUser.role,
+    nextOfKin: updatedUser.nextOfKin,
+    emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
+    createdAt: updatedUser.createdAt,
+    updatedAt: updatedUser.updatedAt,
+    membership: membership
+      ? {
+        type: membership.type,
+        marketingAddon: membership.marketingAddon,
+      }
+      : undefined,
+  };
+}
+
 
 export class AuthController {
   async register(req: Request, res: Response) {
@@ -184,26 +226,7 @@ export class AuthController {
 
       res.status(200).json({
         success: true,
-        data: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          phone: user.phone || undefined,
-          photoUrl: photoUrl || undefined,
-          ...(photoUrlError && { photoUrlError: true }), // Include error indicator if URL generation failed
-          role: user.role,
-          nextOfKin: user.nextOfKin,
-          emailVerifiedAt: user.emailVerifiedAt || undefined,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          membership: membership
-            ? {
-                type: membership.type,
-                marketingAddon: membership.marketingAddon,
-              }
-            : undefined,
-        },
+        data: buildUserResponse(user, membership, photoUrl, photoUrlError),
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -304,7 +327,7 @@ export class AuthController {
       if (error instanceof ZodError) {
         return res.status(400).json({ success: false, error: 'Invalid request data' });
       }
-      
+
       // Check if R2 configuration is missing
       if (!R2_BUCKET_NAME) {
         logger.error(
@@ -316,12 +339,12 @@ export class AuthController {
             url: req.originalUrl,
           }
         );
-        return res.status(500).json({ 
-          success: false, 
-          error: 'File storage service is not configured' 
+        return res.status(500).json({
+          success: false,
+          error: 'File storage service is not configured'
         });
       }
-      
+
       logger.error(
         'Failed to generate photo upload URL',
         error,
@@ -372,12 +395,12 @@ export class AuthController {
               url: req.originalUrl,
             }
           );
-          return res.status(400).json({ 
-            success: false, 
-            error: 'Uploaded file not found. Please try uploading again.' 
+          return res.status(400).json({
+            success: false,
+            error: 'Uploaded file not found. Please try uploading again.'
           });
         }
-        
+
         // Other R2 errors
         logger.error(
           'R2 error while verifying photo file',
@@ -389,9 +412,9 @@ export class AuthController {
             url: req.originalUrl,
           }
         );
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Failed to verify uploaded file' 
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to verify uploaded file'
         });
       }
 
@@ -446,28 +469,20 @@ export class AuthController {
         photoUrlError = true;
       }
 
+      // Fetch membership info for complete response
+      const membership = await db.query.memberships.findFirst({
+        where: eq(memberships.userId, req.user.id),
+      });
+
       res.status(200).json({
         success: true,
-        data: {
-          id: updatedUser.id,
-          email: updatedUser.email,
-          firstName: updatedUser.firstName,
-          lastName: updatedUser.lastName,
-          phone: updatedUser.phone || undefined,
-          photoUrl: photoUrl || undefined, // Return presigned URL for immediate use
-          ...(photoUrlError && { photoUrlError: true }), // Include error indicator if URL generation failed
-          role: updatedUser.role,
-          nextOfKin: updatedUser.nextOfKin,
-          emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
-          createdAt: updatedUser.createdAt,
-          updatedAt: updatedUser.updatedAt,
-        },
+        data: buildUserResponse(updatedUser, membership, photoUrl, photoUrlError),
       });
     } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ success: false, error: 'Invalid request data' });
       }
-      
+
       logger.error(
         'Failed to confirm photo upload',
         error,
@@ -526,6 +541,150 @@ export class AuthController {
       }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Upload a cropped profile photo
+   * Accepts base64 image data, processes it to 512x512 JPEG under 500KB, and uploads to R2
+   */
+  async uploadCroppedPhoto(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const data = croppedPhotoSchema.parse(req.body);
+
+      // Get current user to check for existing photo
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, req.user.id),
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      // Process the image (resize to 512x512, compress to under 500KB)
+      let processedBuffer: Buffer;
+      try {
+        processedBuffer = await processBase64Image(data.imageData);
+      } catch (error) {
+        logger.error(
+          'Failed to process cropped image',
+          error,
+          {
+            userId: req.user.id,
+            method: req.method,
+            url: req.originalUrl,
+          }
+        );
+        return res.status(400).json({
+          success: false,
+          error: 'Failed to process image. Please try a different image.'
+        });
+      }
+
+      // Generate file path for the new photo using FileService
+      const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const filePath = FileService.generateFilePath(req.user.id, 'photos', `${uniqueId}-profile.jpg`);
+
+      // Upload directly to R2
+      try {
+        await FileService.uploadBufferToR2(filePath, processedBuffer, 'image/jpeg');
+      } catch (error) {
+        logger.error(
+          'Failed to upload processed photo to R2',
+          error,
+          {
+            userId: req.user.id,
+            filePath,
+            method: req.method,
+            url: req.originalUrl,
+          }
+        );
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to upload photo. Please try again.'
+        });
+      }
+
+      // Get old photo path for cleanup
+      const oldPhotoPath = user.photoUrl ? FileService.extractFilePath(user.photoUrl) : undefined;
+
+      // Update user photo URL in database
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          photoUrl: filePath,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, req.user.id))
+        .returning();
+
+      // Delete old photo from R2 if it exists and is different
+      if (oldPhotoPath && oldPhotoPath !== filePath) {
+        try {
+          await FileService.deleteFile(oldPhotoPath);
+        } catch (error) {
+          // Log error but don't fail the request
+          logger.error(
+            'Failed to delete old photo during cropped upload',
+            error,
+            {
+              userId: req.user.id,
+              oldPhotoPath,
+              newPhotoPath: filePath,
+              method: req.method,
+              url: req.originalUrl,
+            }
+          );
+        }
+      }
+
+      // Generate presigned URL for the new photo
+      let photoUrl: string | undefined = undefined;
+      let photoUrlError: boolean = false;
+      try {
+        photoUrl = await FileService.generatePresignedGetUrl(filePath, 'photos');
+      } catch (error) {
+        logger.error(
+          'Failed to generate presigned URL for newly uploaded cropped photo',
+          error,
+          {
+            userId: req.user.id,
+            photoPath: filePath,
+            method: req.method,
+            url: req.originalUrl,
+          }
+        );
+        photoUrlError = true;
+      }
+
+      // Fetch membership info for complete response
+      const membership = await db.query.memberships.findFirst({
+        where: eq(memberships.userId, req.user.id),
+      });
+
+      res.status(200).json({
+        success: true,
+        data: buildUserResponse(updatedUser, membership, photoUrl, photoUrlError),
+      });
+    } catch (error: any) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Invalid request data' });
+      }
+
+      logger.error(
+        'Failed to upload cropped photo',
+        error,
+        {
+          userId: req.user?.id,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: error.message || 'Internal server error' });
     }
   }
 }

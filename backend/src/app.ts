@@ -51,8 +51,8 @@ app.use(
   )
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '15mb' })); // Increased limit for base64 image uploads (14MB max)
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
