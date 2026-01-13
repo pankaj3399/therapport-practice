@@ -247,35 +247,39 @@ export const Dashboard: React.FC = () => {
 
   // Auto-refresh data when tab becomes visible
   useEffect(() => {
+    let isRefreshing = false;
+
     const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && user) {
+      if (document.visibilityState === 'visible' && user && !isRefreshing) {
+        isRefreshing = true;
         // Refresh user data (to catch membership/addon changes)
         await refreshUser();
         // Trigger document refetch
         setRefreshTrigger((prev) => prev + 1);
-        // Also refresh dashboard data
-        const controller = new AbortController();
-        fetchDashboardData(controller.signal);
+        // Note: fetchDashboardData will be triggered by user state change in effect at line 126
+        isRefreshing = false;
       }
     };
 
-    window.addEventListener('focus', handleVisibilityChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      window.removeEventListener('focus', handleVisibilityChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [user, refreshUser, fetchDashboardData]);
+  }, [user, refreshUser]);
+
+  // Initial refresh on mount to ensure fresh data (e.g. navigation from Profile)
+  const hasInitialRefreshed = useRef(false);
 
   // Initial refresh on mount to ensure fresh data (e.g. navigation from Profile)
   useEffect(() => {
-    if (user) {
+    if (user && !hasInitialRefreshed.current) {
+      hasInitialRefreshed.current = true;
       refreshUser().then(() => {
         setRefreshTrigger((prev) => prev + 1);
       });
     }
-  }, [refreshUser]);
+  }, [user, refreshUser]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
