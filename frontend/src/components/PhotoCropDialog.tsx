@@ -22,6 +22,9 @@ interface PhotoCropDialogProps {
 const CANVAS_SIZE = 300;
 const CROP_SIZE = 250;
 
+// Allowed file types - single source of truth
+const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
 export function PhotoCropDialog({
     open,
     onOpenChange,
@@ -51,6 +54,7 @@ export function PhotoCropDialog({
             setPosition({ x: 0, y: 0 });
             setError(null);
             setUploading(false);
+            imageRef.current = null; // Clear stale image reference
         }
     }, [open]);
 
@@ -100,9 +104,6 @@ export function PhotoCropDialog({
         drawCanvas();
     }, [drawCanvas, imageData, zoom, position]);
 
-    // Allowed file types - single source of truth
-    const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -138,9 +139,7 @@ export function PhotoCropDialog({
                 const initialZoom = CROP_SIZE / minDimension;
                 setZoom(Math.max(initialZoom, 0.5));
                 setPosition({ x: 0, y: 0 });
-
-                // Draw after image loads
-                setTimeout(drawCanvas, 50);
+                // useEffect watching imageData will trigger drawCanvas
             };
             img.src = dataUrl;
         };

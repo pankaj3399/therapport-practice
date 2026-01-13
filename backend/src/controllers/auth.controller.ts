@@ -74,6 +74,37 @@ const croppedPhotoSchema = z.object({
     .max(MAX_BASE64_LENGTH, 'Image data must not exceed 10MB'),
 });
 
+/**
+ * Helper function to build consistent user response object
+ */
+function buildUserResponse(
+  updatedUser: any,
+  membership: any,
+  photoUrl?: string,
+  photoUrlError?: boolean
+) {
+  return {
+    id: updatedUser.id,
+    email: updatedUser.email,
+    firstName: updatedUser.firstName,
+    lastName: updatedUser.lastName,
+    phone: updatedUser.phone || undefined,
+    photoUrl: photoUrl || undefined,
+    ...(photoUrlError && { photoUrlError: true }),
+    role: updatedUser.role,
+    nextOfKin: updatedUser.nextOfKin,
+    emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
+    createdAt: updatedUser.createdAt,
+    updatedAt: updatedUser.updatedAt,
+    membership: membership
+      ? {
+        type: membership.type,
+        marketingAddon: membership.marketingAddon,
+      }
+      : undefined,
+  };
+}
+
 
 export class AuthController {
   async register(req: Request, res: Response) {
@@ -195,26 +226,7 @@ export class AuthController {
 
       res.status(200).json({
         success: true,
-        data: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          phone: user.phone || undefined,
-          photoUrl: photoUrl || undefined,
-          ...(photoUrlError && { photoUrlError: true }), // Include error indicator if URL generation failed
-          role: user.role,
-          nextOfKin: user.nextOfKin,
-          emailVerifiedAt: user.emailVerifiedAt || undefined,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          membership: membership
-            ? {
-              type: membership.type,
-              marketingAddon: membership.marketingAddon,
-            }
-            : undefined,
-        },
+        data: buildUserResponse(user, membership, photoUrl, photoUrlError),
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -457,22 +469,14 @@ export class AuthController {
         photoUrlError = true;
       }
 
+      // Fetch membership info for complete response
+      const membership = await db.query.memberships.findFirst({
+        where: eq(memberships.userId, req.user.id),
+      });
+
       res.status(200).json({
         success: true,
-        data: {
-          id: updatedUser.id,
-          email: updatedUser.email,
-          firstName: updatedUser.firstName,
-          lastName: updatedUser.lastName,
-          phone: updatedUser.phone || undefined,
-          photoUrl: photoUrl || undefined, // Return presigned URL for immediate use
-          ...(photoUrlError && { photoUrlError: true }), // Include error indicator if URL generation failed
-          role: updatedUser.role,
-          nextOfKin: updatedUser.nextOfKin,
-          emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
-          createdAt: updatedUser.createdAt,
-          updatedAt: updatedUser.updatedAt,
-        },
+        data: buildUserResponse(updatedUser, membership, photoUrl, photoUrlError),
       });
     } catch (error: any) {
       if (error instanceof ZodError) {
@@ -581,9 +585,9 @@ export class AuthController {
         });
       }
 
-      // Generate file path for the new photo
+      // Generate file path for the new photo using FileService
       const timestamp = Date.now();
-      const filePath = `photos/${req.user.id}/${timestamp}-profile.jpg`;
+      const filePath = FileService.generateFilePath(req.user.id, 'photos', `${timestamp}-profile.jpg`);
 
       // Upload directly to R2
       try {
@@ -664,26 +668,7 @@ export class AuthController {
 
       res.status(200).json({
         success: true,
-        data: {
-          id: updatedUser.id,
-          email: updatedUser.email,
-          firstName: updatedUser.firstName,
-          lastName: updatedUser.lastName,
-          phone: updatedUser.phone || undefined,
-          photoUrl: photoUrl || undefined,
-          ...(photoUrlError && { photoUrlError: true }),
-          role: updatedUser.role,
-          nextOfKin: updatedUser.nextOfKin,
-          emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
-          createdAt: updatedUser.createdAt,
-          updatedAt: updatedUser.updatedAt,
-          membership: membership
-            ? {
-              type: membership.type,
-              marketingAddon: membership.marketingAddon,
-            }
-            : undefined,
-        },
+        data: buildUserResponse(updatedUser, membership, photoUrl, photoUrlError),
       });
     } catch (error: any) {
       if (error instanceof ZodError) {
