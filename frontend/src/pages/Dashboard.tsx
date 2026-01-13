@@ -246,18 +246,19 @@ export const Dashboard: React.FC = () => {
   }, [user?.id, user?.membership?.marketingAddon, refreshTrigger]);
 
   // Auto-refresh data when tab becomes visible
-  useEffect(() => {
-    let isRefreshing = false;
+  // Auto-refresh data when tab becomes visible
+  const isRefreshingRef = useRef(false);
 
+  useEffect(() => {
     const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && user && !isRefreshing) {
-        isRefreshing = true;
+      if (document.visibilityState === 'visible' && user && !isRefreshingRef.current) {
+        isRefreshingRef.current = true;
         // Refresh user data (to catch membership/addon changes)
         await refreshUser();
         // Trigger document refetch
         setRefreshTrigger((prev) => prev + 1);
         // Note: fetchDashboardData will be triggered by user state change in effect at line 126
-        isRefreshing = false;
+        isRefreshingRef.current = false;
       }
     };
 
@@ -273,12 +274,18 @@ export const Dashboard: React.FC = () => {
 
   // Initial refresh on mount to ensure fresh data (e.g. navigation from Profile)
   useEffect(() => {
+    let cancelled = false;
     if (user && !hasInitialRefreshed.current) {
       hasInitialRefreshed.current = true;
       refreshUser().then(() => {
-        setRefreshTrigger((prev) => prev + 1);
+        if (!cancelled) {
+          setRefreshTrigger((prev) => prev + 1);
+        }
       });
     }
+    return () => {
+      cancelled = true;
+    };
   }, [user, refreshUser]);
 
   const formatMonthYear = (monthYear: string): string => {
