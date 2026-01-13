@@ -457,15 +457,21 @@ export const Profile: React.FC = () => {
                   open={photoDialogOpen}
                   onOpenChange={setPhotoDialogOpen}
                   onSave={async (imageData: string) => {
-                    const response = await api.post('/auth/profile/photo/upload-cropped', {
-                      imageData,
-                    });
-                    if (response.data.success && response.data.data) {
-                      updateUser(response.data.data);
-                      setMessage({ type: 'success', text: 'Photo uploaded successfully' });
-                      setTimeout(() => setMessage(null), 3000);
-                    } else {
-                      throw new Error(response.data.error || 'Failed to upload photo');
+                    try {
+                      const response = await api.post('/auth/profile/photo/upload-cropped', {
+                        imageData,
+                      });
+                      if (response?.data?.success && response.data.data) {
+                        updateUser(response.data.data);
+                        setMessage({ type: 'success', text: 'Photo uploaded successfully' });
+                        setTimeout(() => setMessage(null), 3000);
+                      } else {
+                        throw new Error(response?.data?.error || 'Failed to upload photo');
+                      }
+                    } catch (err: any) {
+                      // Re-throw with a meaningful message so PhotoCropDialog can display it
+                      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to upload photo';
+                      throw new Error(errorMessage);
                     }
                   }}
                   currentPhotoUrl={user?.photoUrl}

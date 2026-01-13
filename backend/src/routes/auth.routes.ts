@@ -59,6 +59,15 @@ const photoConfirmSchema = z.object({
   oldPhotoPath: z.string().optional(),
 });
 
+// Schema for cropped photo upload
+// Base64 encoding increases size by ~33%, so 10MB file ≈ 14MB base64 chars
+const MAX_BASE64_LENGTH = 14_000_000;
+const uploadCroppedPhotoSchema = z.object({
+  imageData: z.string()
+    .min(1, 'Image data is required')
+    .max(MAX_BASE64_LENGTH, 'Image data must not exceed 10MB'),
+});
+
 router.post('/register', validate(registerSchema), authController.register.bind(authController));
 router.post('/login', validate(loginSchema), authController.login.bind(authController));
 router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword.bind(authController));
@@ -73,7 +82,7 @@ router.post('/profile/photo/upload-url', authenticate, validate(photoUploadUrlSc
 router.put('/profile/photo/confirm', authenticate, validate(photoConfirmSchema), authController.confirmPhotoUpload.bind(authController));
 router.get('/profile/photo', authenticate, authController.getPhotoUrl.bind(authController));
 // Cropped photo upload (frontend sends base64 image data)
-router.post('/profile/photo/upload-cropped', authenticate, authController.uploadCroppedPhoto.bind(authController));
+router.post('/profile/photo/upload-cropped', authenticate, validate(uploadCroppedPhotoSchema), authController.uploadCroppedPhoto.bind(authController));
 
 export default router;
 

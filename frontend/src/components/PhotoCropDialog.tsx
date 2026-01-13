@@ -100,13 +100,16 @@ export function PhotoCropDialog({
         drawCanvas();
     }, [drawCanvas, imageData, zoom, position]);
 
+    // Allowed file types - single source of truth
+    const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        // Validate file type
-        if (!file.type.startsWith('image/')) {
-            setError('Please select an image file');
+        // Validate file type against explicit whitelist
+        if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+            setError('Please select a valid image file (JPEG, PNG, or WebP)');
             return;
         }
 
@@ -170,6 +173,7 @@ export function PhotoCropDialog({
     // Touch handlers for mobile
     const handleTouchStart = (e: React.TouchEvent) => {
         if (!imageData || e.touches.length !== 1) return;
+        e.preventDefault(); // Prevent page scrolling during drag
         const touch = e.touches[0];
         setIsDragging(true);
         setDragStart({ x: touch.clientX - position.x, y: touch.clientY - position.y });
@@ -177,6 +181,7 @@ export function PhotoCropDialog({
 
     const handleTouchMove = (e: React.TouchEvent) => {
         if (!isDragging || e.touches.length !== 1) return;
+        e.preventDefault(); // Prevent page scrolling during drag
         const touch = e.touches[0];
         setPosition({
             x: touch.clientX - dragStart.x,
@@ -321,7 +326,7 @@ export function PhotoCropDialog({
                             ref={canvasRef}
                             width={CANVAS_SIZE}
                             height={CANVAS_SIZE}
-                            className={`cursor-${isDragging ? 'grabbing' : imageData ? 'grab' : 'default'}`}
+                            className={isDragging ? 'cursor-grabbing' : imageData ? 'cursor-grab' : 'cursor-default'}
                             onMouseDown={handleMouseDown}
                             onMouseMove={handleMouseMove}
                             onMouseUp={handleMouseUp}

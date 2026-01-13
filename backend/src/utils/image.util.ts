@@ -1,14 +1,7 @@
 import sharp from 'sharp';
 
-/**
- * Interface for crop data from frontend
- */
-export interface CropData {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
+// TODO: CropData interface may be used in future for client-side crop coordinates
+// interface CropData { x: number; y: number; width: number; height: number; }
 
 /**
  * Process a profile photo:
@@ -23,16 +16,20 @@ export async function processProfilePhoto(imageBuffer: Buffer): Promise<Buffer> 
     // Target file size: 500KB = 500 * 1024 bytes
     const maxSizeBytes = 500 * 1024;
 
+    // First resize once (this is the expensive operation)
+    const resizedBuffer = await sharp(imageBuffer)
+        .resize(512, 512, {
+            fit: 'cover',
+            position: 'center',
+        })
+        .toBuffer();
+
     // Start with quality 90 and reduce if necessary
     let quality = 90;
     let processedBuffer: Buffer;
 
     do {
-        processedBuffer = await sharp(imageBuffer)
-            .resize(512, 512, {
-                fit: 'cover',
-                position: 'center',
-            })
+        processedBuffer = await sharp(resizedBuffer)
             .jpeg({
                 quality,
                 progressive: true,

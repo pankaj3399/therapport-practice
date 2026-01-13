@@ -66,8 +66,12 @@ const photoConfirmSchema = z.object({
 });
 
 // Schema for cropped photo upload
+// Base64 encoding increases size by ~33%, so 10MB file ≈ 14MB base64 chars
+const MAX_BASE64_LENGTH = 14_000_000;
 const croppedPhotoSchema = z.object({
-  imageData: z.string().min(1, 'Image data is required'),
+  imageData: z.string()
+    .min(1, 'Image data is required')
+    .max(MAX_BASE64_LENGTH, 'Image data must not exceed 10MB'),
 });
 
 
@@ -636,6 +640,7 @@ export class AuthController {
 
       // Generate presigned URL for the new photo
       let photoUrl: string | undefined = undefined;
+      let photoUrlError: boolean = false;
       try {
         photoUrl = await FileService.generatePresignedGetUrl(filePath, 'photos');
       } catch (error) {
@@ -649,6 +654,7 @@ export class AuthController {
             url: req.originalUrl,
           }
         );
+        photoUrlError = true;
       }
 
       // Fetch membership info for complete response
@@ -665,6 +671,7 @@ export class AuthController {
           lastName: updatedUser.lastName,
           phone: updatedUser.phone || undefined,
           photoUrl: photoUrl || undefined,
+          ...(photoUrlError && { photoUrlError: true }),
           role: updatedUser.role,
           nextOfKin: updatedUser.nextOfKin,
           emailVerifiedAt: updatedUser.emailVerifiedAt || undefined,
