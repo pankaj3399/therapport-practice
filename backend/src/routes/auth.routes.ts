@@ -72,6 +72,8 @@ router.get('/me', authenticate, authController.getCurrentUser.bind(authControlle
 router.post('/profile/photo/upload-url', authenticate, validate(photoUploadUrlSchema), authController.getPhotoUploadUrl.bind(authController));
 router.put('/profile/photo/confirm', authenticate, validate(photoConfirmSchema), authController.confirmPhotoUpload.bind(authController));
 router.get('/profile/photo', authenticate, authController.getPhotoUrl.bind(authController));
+// Cropped photo upload (frontend sends base64 image data)
+router.post('/profile/photo/upload-cropped', authenticate, authController.uploadCroppedPhoto.bind(authController));
 
 export default router;
 

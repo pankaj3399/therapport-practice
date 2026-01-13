@@ -142,8 +142,8 @@ export class FileService {
       Key: filePath,
     });
 
-    const expiresIn = category === 'photos' 
-      ? this.PHOTO_GET_URL_EXPIRY 
+    const expiresIn = category === 'photos'
+      ? this.PHOTO_GET_URL_EXPIRY
       : this.DOCUMENT_GET_URL_EXPIRY;
 
     const presignedUrl = await getSignedUrl(r2Client, command, { expiresIn });
@@ -164,6 +164,31 @@ export class FileService {
   }
 
   /**
+   * Upload a buffer directly to R2 (for processed images)
+   * @param filePath - The path/key in R2
+   * @param buffer - The file buffer to upload
+   * @param contentType - MIME type of the file
+   */
+  static async uploadBufferToR2(
+    filePath: string,
+    buffer: Buffer,
+    contentType: string
+  ): Promise<void> {
+    if (!R2_BUCKET_NAME) {
+      throw new Error('R2_BUCKET_NAME environment variable is required');
+    }
+
+    const command = new PutObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: filePath,
+      Body: buffer,
+      ContentType: contentType,
+    });
+
+    await r2Client.send(command);
+  }
+
+  /**
    * Extract file path from stored path (for backward compatibility)
    * Since we store file paths directly, this just returns the path as-is
    */
@@ -172,7 +197,7 @@ export class FileService {
     if (!filePathOrUrl.startsWith('http')) {
       return filePathOrUrl;
     }
-    
+
     // If it's a URL, try to extract the path (for backward compatibility)
     // This handles old data that might have URLs stored
     const urlParts = filePathOrUrl.split('/');
@@ -180,7 +205,7 @@ export class FileService {
     if (pathIndex !== -1) {
       return urlParts.slice(pathIndex).join('/');
     }
-    
+
     return filePathOrUrl;
   }
 }
