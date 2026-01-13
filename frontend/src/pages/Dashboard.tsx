@@ -55,7 +55,7 @@ interface DashboardData {
 }
 
 export const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +64,7 @@ export const Dashboard: React.FC = () => {
   const [clinicalDocument, setClinicalDocument] = useState<DocumentState>({ status: 'loading' });
   const isMountedRef = useRef(true);
   const retryControllerRef = useRef<AbortController | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -242,7 +243,39 @@ export const Dashboard: React.FC = () => {
     return () => {
       controller.abort();
     };
-  }, [user?.id, user?.membership?.marketingAddon]);
+  }, [user?.id, user?.membership?.marketingAddon, refreshTrigger]);
+
+  // Auto-refresh data when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && user) {
+        // Refresh user data (to catch membership/addon changes)
+        await refreshUser();
+        // Trigger document refetch
+        setRefreshTrigger((prev) => prev + 1);
+        // Also refresh dashboard data
+        const controller = new AbortController();
+        fetchDashboardData(controller.signal);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, refreshUser, fetchDashboardData]);
+
+  // Initial refresh on mount to ensure fresh data (e.g. navigation from Profile)
+  useEffect(() => {
+    if (user) {
+      refreshUser().then(() => {
+        setRefreshTrigger((prev) => prev + 1);
+      });
+    }
+  }, [refreshUser]);
 
   const formatMonthYear = (monthYear: string): string => {
     // Validate input: non-empty string matching YYYY-MM or YYYY-MM-DD format
@@ -482,8 +515,8 @@ export const Dashboard: React.FC = () => {
                   {dashboardData.credit.currentMonth.remainingCredit > 0 &&
                     dashboardData.credit.currentMonth.monthlyCredit > 0 &&
                     dashboardData.credit.currentMonth.remainingCredit /
-                      dashboardData.credit.currentMonth.monthlyCredit <
-                      0.2 && (
+                    dashboardData.credit.currentMonth.monthlyCredit <
+                    0.2 && (
                       <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
                         <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
                         <span className="text-orange-700 dark:text-orange-300 font-medium">
@@ -590,7 +623,7 @@ export const Dashboard: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {dashboardData?.upcomingBookings &&
-                    dashboardData.upcomingBookings.length > 0 ? (
+                      dashboardData.upcomingBookings.length > 0 ? (
                       dashboardData.upcomingBookings.map((booking) => (
                         <TableRow key={booking.id}>
                           <TableCell className="font-medium">

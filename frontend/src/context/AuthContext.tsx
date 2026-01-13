@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import api from '../services/api';
 import type { User, LoginRequest, RegisterRequest, AuthResponse } from '../types';
 
@@ -10,6 +10,7 @@ interface AuthContextType {
   logout: () => void;
   updateUser: (user: User) => void;
   isAuthenticated: boolean;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       setLoading(false);
@@ -51,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const login = async (data: LoginRequest) => {
     const response = await api.post<{ success: boolean; data: AuthResponse }>('/auth/login', data);
@@ -93,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         updateUser,
         isAuthenticated: !!user,
+        refreshUser: checkAuth,
       }}
     >
       {children}
