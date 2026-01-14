@@ -19,6 +19,26 @@ const updateMembershipSchema = z.object({
   }
 });
 
+const updatePractitionerSchema = z.object({
+  firstName: z.string().min(1, 'First name is required').trim().optional(),
+  lastName: z.string().min(1, 'Last name is required').trim().optional(),
+  phone: z.string().min(1, 'Phone must be at least 1 character').nullable().optional(),
+  status: z.enum(['pending', 'active', 'suspended', 'rejected']).optional(),
+});
+
+const updateNextOfKinSchema = z.object({
+  name: z.string().min(1, 'Name is required').trim(),
+  relationship: z.string().min(1, 'Relationship is required').trim(),
+  phone: z.string().min(1, 'Phone is required').trim(),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+});
+
+const updateClinicalExecutorSchema = z.object({
+  name: z.string().min(1, 'Name is required').trim(),
+  email: z.string().email('Invalid email address'),
+  phone: z.string().min(1, 'Phone is required').trim(),
+});
+
 export class AdminController {
   async getPractitioners(req: AuthRequest, res: Response) {
     try {
@@ -328,7 +348,18 @@ export class AdminController {
       }
 
       const { userId } = req.params;
-      const { firstName, lastName, phone } = req.body;
+
+      // Validate request body
+      try {
+        await updatePractitionerSchema.parseAsync(req.body);
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+        }
+        throw error;
+      }
+
+      const { firstName, lastName, phone, status } = req.body;
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
@@ -340,13 +371,20 @@ export class AdminController {
       }
 
       // Build update object
-      const updateData: { firstName?: string; lastName?: string; phone?: string | null; updatedAt: Date } = {
+      const updateData: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string | null;
+        status?: 'pending' | 'active' | 'suspended' | 'rejected';
+        updatedAt: Date
+      } = {
         updatedAt: new Date(),
       };
 
       if (firstName !== undefined) updateData.firstName = firstName;
       if (lastName !== undefined) updateData.lastName = lastName;
       if (phone !== undefined) updateData.phone = phone || null;
+      if (status !== undefined) updateData.status = status;
 
       const [updated] = await db
         .update(users)
@@ -361,9 +399,13 @@ export class AdminController {
           firstName: updated.firstName,
           lastName: updated.lastName,
           phone: updated.phone || undefined,
+          status: updated.status,
         },
       });
     } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
       logger.error('Failed to update practitioner', error, {
         userId: req.user?.id,
         targetUserId: req.params.userId,
@@ -382,6 +424,17 @@ export class AdminController {
       }
 
       const { userId } = req.params;
+
+      // Validate request body
+      try {
+        await updateNextOfKinSchema.parseAsync(req.body);
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+        }
+        throw error;
+      }
+
       const { name, relationship, phone, email } = req.body;
 
       // Verify practitioner exists
@@ -408,6 +461,9 @@ export class AdminController {
         },
       });
     } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
       logger.error('Failed to update next of kin', error, {
         userId: req.user?.id,
         targetUserId: req.params.userId,
@@ -426,6 +482,17 @@ export class AdminController {
       }
 
       const { userId } = req.params;
+
+      // Validate request body
+      try {
+        await updateClinicalExecutorSchema.parseAsync(req.body);
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+        }
+        throw error;
+      }
+
       const { name, email, phone } = req.body;
 
       // Verify practitioner exists
@@ -468,6 +535,9 @@ export class AdminController {
         },
       });
     } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
       logger.error('Failed to update clinical executor', error, {
         userId: req.user?.id,
         targetUserId: req.params.userId,

@@ -5,7 +5,6 @@ import { AccessDenied } from '@/components/AccessDenied';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,21 +16,13 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { adminApi } from '@/services/api';
 import { cn } from '@/lib/utils';
-
-type UserStatus = 'pending' | 'active' | 'suspended' | 'rejected';
+import { ProfileTab } from './components/ProfileTab';
+import { MembershipTab } from './components/MembershipTab';
+import { NextOfKinTab } from './components/NextOfKinTab';
+import { ClinicalTab } from './components/ClinicalTab';
+import { UserStatus, PractitionerMembership, NextOfKin, ClinicalExecutor } from '@/types';
 
 const statusColors: Record<UserStatus, string> = {
     pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -46,11 +37,7 @@ interface Practitioner {
     firstName: string;
     lastName: string;
     status: UserStatus;
-    membership: {
-        id?: string;
-        type: 'permanent' | 'ad_hoc';
-        marketingAddon: boolean;
-    } | null;
+    membership: PractitionerMembership | null;
 }
 
 interface FullPractitioner {
@@ -58,22 +45,11 @@ interface FullPractitioner {
     email: string;
     firstName: string;
     lastName: string;
-    status: UserStatus;
     phone?: string;
-    photoUrl?: string;
     role: string;
-    nextOfKin: {
-        name: string;
-        relationship: string;
-        phone: string;
-        email?: string;
-    } | null;
-    createdAt: string;
-    membership: {
-        id?: string;
-        type: 'permanent' | 'ad_hoc';
-        marketingAddon: boolean;
-    } | null;
+    status: UserStatus;
+    membership: PractitionerMembership | null;
+    nextOfKin: NextOfKin | null;
     documents: Array<{
         id: string;
         documentType: 'insurance' | 'clinical_registration';
@@ -82,13 +58,9 @@ interface FullPractitioner {
         expiryDate: string | null;
         createdAt: string;
     }>;
-    clinicalExecutor: {
-        id: string;
-        name: string;
-        email: string;
-        phone: string;
-    } | null;
+    clinicalExecutor: ClinicalExecutor | null;
 }
+
 
 export const PractitionerManagement: React.FC = () => {
     const { user } = useAuth();
@@ -104,7 +76,7 @@ export const PractitionerManagement: React.FC = () => {
     const detailPanelRef = useRef<HTMLDivElement>(null);
 
     // Form states
-    const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '' });
+    const [profileForm, setProfileForm] = useState<{ firstName: string; lastName: string; phone: string; status: UserStatus }>({ firstName: '', lastName: '', phone: '', status: 'pending' });
     const [membershipType, setMembershipType] = useState<'permanent' | 'ad_hoc' | ''>('');
     const [marketingAddon, setMarketingAddon] = useState(false);
     const [nextOfKinForm, setNextOfKinForm] = useState({ name: '', relationship: '', phone: '', email: '' });
@@ -129,7 +101,7 @@ export const PractitionerManagement: React.FC = () => {
             setLoading(true);
             const response = await adminApi.getPractitioners(query || undefined);
             if (response.data.success && response.data.data) {
-                setPractitioners(response.data.data as unknown as Practitioner[]);
+                setPractitioners(response.data.data);
             }
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to load practitioners' });
@@ -155,6 +127,7 @@ export const PractitionerManagement: React.FC = () => {
                 firstName: selectedPractitioner.firstName,
                 lastName: selectedPractitioner.lastName,
                 phone: selectedPractitioner.phone || '',
+                status: selectedPractitioner.status,
             });
             setMembershipType(selectedPractitioner.membership?.type || '');
             setMarketingAddon(selectedPractitioner.membership?.marketingAddon || false);
@@ -172,6 +145,15 @@ export const PractitionerManagement: React.FC = () => {
         }
     }, [selectedPractitioner]);
 
+    // Scroll after paint when selection changes
+    useEffect(() => {
+        if (selectedPractitioner && detailPanelRef.current) {
+            requestAnimationFrame(() => {
+                detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        }
+    }, [selectedPractitioner]);
+
     const handleSearch = () => fetchPractitioners(searchQuery);
 
     const handleSelectPractitioner = async (practitionerId: string) => {
@@ -179,12 +161,9 @@ export const PractitionerManagement: React.FC = () => {
             setDetailLoading(true);
             const response = await adminApi.getFullPractitioner(practitionerId);
             if (response.data.success && response.data.data) {
-                setSelectedPractitioner(response.data.data as unknown as FullPractitioner);
+                // Just update data, scroll effect handles visibility
+                setSelectedPractitioner(response.data.data);
                 setActiveTab('profile');
-                // Scroll to detail panel after a short delay for render
-                setTimeout(() => {
-                    detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }, 100);
             }
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to load practitioner details' });
@@ -197,10 +176,24 @@ export const PractitionerManagement: React.FC = () => {
         if (!selectedPractitioner) return;
         try {
             setSaving(true);
-            await adminApi.updatePractitioner(selectedPractitioner.id, profileForm);
+            const updateData = {
+                firstName: profileForm.firstName,
+                lastName: profileForm.lastName,
+                phone: profileForm.phone || undefined,
+                status: profileForm.status,
+            };
+            await adminApi.updatePractitioner(selectedPractitioner.id, updateData);
             setMessageWithTimeout({ type: 'success', text: 'Profile updated successfully' });
-            await handleSelectPractitioner(selectedPractitioner.id);
-            await fetchPractitioners(searchQuery);
+
+            // Refresh data locally to avoid full reload flicker
+            setSelectedPractitioner(prev => prev ? {
+                ...prev,
+                ...updateData,
+                phone: updateData.phone || prev.phone
+            } : null);
+
+            // Also refresh list to update status badge on main table
+            fetchPractitioners(searchQuery);
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update profile' });
         } finally {
@@ -217,17 +210,26 @@ export const PractitionerManagement: React.FC = () => {
         try {
             setSaving(true);
             const updateData: { type?: 'permanent' | 'ad_hoc' | null; marketingAddon?: boolean } = {};
-            if (!membershipType) {
-                if (selectedPractitioner.membership) updateData.type = null;
-                else { setSaving(false); return; }
-            } else {
+
+            if (membershipType) {
                 updateData.type = membershipType;
                 updateData.marketingAddon = marketingAddon;
+            } else {
+                updateData.type = null;
+                updateData.marketingAddon = false;
             }
+
             await adminApi.updateMembership(selectedPractitioner.id, updateData);
             setMessageWithTimeout({ type: 'success', text: updateData.type === null ? 'Membership removed' : 'Membership updated' });
-            await handleSelectPractitioner(selectedPractitioner.id);
-            await fetchPractitioners(searchQuery);
+
+            const [updatedPractitioner] = await Promise.all([
+                adminApi.getFullPractitioner(selectedPractitioner.id),
+                fetchPractitioners(searchQuery)
+            ]);
+
+            if (updatedPractitioner.data.success && updatedPractitioner.data.data) {
+                setSelectedPractitioner(updatedPractitioner.data.data);
+            }
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update membership' });
         } finally {
@@ -405,140 +407,51 @@ export const PractitionerManagement: React.FC = () => {
                                         </TabsList>
 
                                         {/* Profile Tab */}
-                                        <TabsContent value="profile" className="space-y-4 pt-4">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="firstName">First Name</Label>
-                                                    <Input id="firstName" value={profileForm.firstName} onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="lastName">Last Name</Label>
-                                                    <Input id="lastName" value={profileForm.lastName} onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })} />
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="phone">Phone</Label>
-                                                <Input id="phone" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} />
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <Button onClick={handleSaveProfile} disabled={saving}>{saving ? 'Saving...' : 'Save Profile'}</Button>
-                                                <AlertDialog>
-                                                    <AlertDialogTrigger asChild>
-                                                        <Button className="bg-red-600 hover:bg-red-700 text-white" disabled={saving}>Delete User</Button>
-                                                    </AlertDialogTrigger>
-                                                    <AlertDialogContent>
-                                                        <AlertDialogHeader>
-                                                            <AlertDialogTitle>Delete Practitioner?</AlertDialogTitle>
-                                                            <AlertDialogDescription>
-                                                                This will permanently delete {selectedPractitioner.firstName} {selectedPractitioner.lastName} and all their data (bookings, documents, invoices). This action cannot be undone.
-                                                            </AlertDialogDescription>
-                                                        </AlertDialogHeader>
-                                                        <AlertDialogFooter>
-                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                            <AlertDialogAction onClick={handleDeletePractitioner} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
-                                                        </AlertDialogFooter>
-                                                    </AlertDialogContent>
-                                                </AlertDialog>
-                                            </div>
+                                        <TabsContent value="profile" className="mt-0">
+                                            <ProfileTab
+                                                firstName={profileForm.firstName}
+                                                lastName={profileForm.lastName}
+                                                phone={profileForm.phone}
+                                                status={profileForm.status}
+                                                saving={saving}
+                                                onChange={setProfileForm}
+                                                onSave={handleSaveProfile}
+                                                onDelete={() => handleDeletePractitioner()}
+                                                practitionerName={`${selectedPractitioner.firstName} ${selectedPractitioner.lastName}`}
+                                            />
                                         </TabsContent>
 
                                         {/* Membership Tab */}
-                                        <TabsContent value="membership" className="space-y-4 pt-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="membershipType">Membership Type</Label>
-                                                <select
-                                                    id="membershipType"
-                                                    value={membershipType}
-                                                    onChange={(e) => {
-                                                        const newType = e.target.value as 'permanent' | 'ad_hoc' | '';
-                                                        setMembershipType(newType);
-                                                        if (newType === 'ad_hoc') setMarketingAddon(false);
-                                                    }}
-                                                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900"
-                                                    disabled={saving}
-                                                >
-                                                    <option value="">No membership</option>
-                                                    <option value="permanent">Permanent</option>
-                                                    <option value="ad_hoc">Ad-hoc</option>
-                                                </select>
-                                            </div>
-                                            {membershipType === 'permanent' && (
-                                                <div className="flex items-center gap-2">
-                                                    <input type="checkbox" id="marketingAddon" checked={marketingAddon} onChange={(e) => setMarketingAddon(e.target.checked)} disabled={saving} className="w-4 h-4" />
-                                                    <Label htmlFor="marketingAddon">Enable Marketing Add-on</Label>
-                                                </div>
-                                            )}
-                                            <Button onClick={handleSaveMembership} disabled={saving}>{saving ? 'Saving...' : 'Save Membership'}</Button>
+                                        <TabsContent value="membership" className="mt-0">
+                                            <MembershipTab
+                                                membershipType={membershipType}
+                                                marketingAddon={marketingAddon}
+                                                saving={saving}
+                                                onTypeChange={setMembershipType}
+                                                onAddonChange={setMarketingAddon}
+                                                onSave={handleSaveMembership}
+                                            />
                                         </TabsContent>
 
                                         {/* Next of Kin Tab */}
-                                        <TabsContent value="nextofkin" className="space-y-4 pt-4">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="nokName">Name</Label>
-                                                    <Input id="nokName" value={nextOfKinForm.name} onChange={(e) => setNextOfKinForm({ ...nextOfKinForm, name: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="nokRelationship">Relationship</Label>
-                                                    <Input id="nokRelationship" value={nextOfKinForm.relationship} onChange={(e) => setNextOfKinForm({ ...nextOfKinForm, relationship: e.target.value })} />
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="nokPhone">Phone</Label>
-                                                    <Input id="nokPhone" value={nextOfKinForm.phone} onChange={(e) => setNextOfKinForm({ ...nextOfKinForm, phone: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="nokEmail">Email</Label>
-                                                    <Input id="nokEmail" type="email" value={nextOfKinForm.email} onChange={(e) => setNextOfKinForm({ ...nextOfKinForm, email: e.target.value })} />
-                                                </div>
-                                            </div>
-                                            <Button onClick={handleSaveNextOfKin} disabled={saving}>{saving ? 'Saving...' : 'Save Next of Kin'}</Button>
+                                        <TabsContent value="nextofkin" className="mt-0">
+                                            <NextOfKinTab
+                                                form={nextOfKinForm}
+                                                saving={saving}
+                                                onChange={setNextOfKinForm}
+                                                onSave={handleSaveNextOfKin}
+                                            />
                                         </TabsContent>
 
                                         {/* Clinical Tab */}
-                                        <TabsContent value="clinical" className="space-y-4 pt-4">
-                                            {/* Documents Status */}
-                                            <div className="space-y-2">
-                                                <h4 className="font-medium text-sm">Documents</h4>
-                                                <div className="space-y-2">
-                                                    {selectedPractitioner.documents.length === 0 ? (
-                                                        <p className="text-sm text-slate-500">No documents uploaded</p>
-                                                    ) : (
-                                                        selectedPractitioner.documents.map((doc) => (
-                                                            <div key={doc.id} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900 rounded">
-                                                                <div>
-                                                                    <span className="font-medium text-sm">{doc.documentType === 'insurance' ? 'Insurance' : 'Clinical Registration'}</span>
-                                                                    <p className="text-xs text-slate-500">{doc.fileName}</p>
-                                                                </div>
-                                                                <Badge variant={doc.expiryDate && new Date(doc.expiryDate) < new Date() ? 'destructive' : 'success'}>
-                                                                    {doc.expiryDate ? (new Date(doc.expiryDate) < new Date() ? 'Expired' : `Exp: ${doc.expiryDate}`) : 'No expiry'}
-                                                                </Badge>
-                                                            </div>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Clinical Executor */}
-                                            <div className="space-y-2 pt-4 border-t">
-                                                <h4 className="font-medium text-sm">Clinical Executor</h4>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="ceName">Name</Label>
-                                                        <Input id="ceName" value={clinicalExecutorForm.name} onChange={(e) => setClinicalExecutorForm({ ...clinicalExecutorForm, name: e.target.value })} />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="ceEmail">Email</Label>
-                                                        <Input id="ceEmail" type="email" value={clinicalExecutorForm.email} onChange={(e) => setClinicalExecutorForm({ ...clinicalExecutorForm, email: e.target.value })} />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="cePhone">Phone</Label>
-                                                    <Input id="cePhone" value={clinicalExecutorForm.phone} onChange={(e) => setClinicalExecutorForm({ ...clinicalExecutorForm, phone: e.target.value })} />
-                                                </div>
-                                                <Button onClick={handleSaveClinicalExecutor} disabled={saving}>{saving ? 'Saving...' : 'Save Clinical Executor'}</Button>
-                                            </div>
+                                        <TabsContent value="clinical" className="mt-0">
+                                            <ClinicalTab
+                                                documents={selectedPractitioner.documents}
+                                                executorForm={clinicalExecutorForm}
+                                                saving={saving}
+                                                onExecutorChange={setClinicalExecutorForm}
+                                                onSaveExecutor={handleSaveClinicalExecutor}
+                                            />
                                         </TabsContent>
                                     </Tabs>
                                 )}

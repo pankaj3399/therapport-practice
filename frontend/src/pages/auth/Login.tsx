@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -28,16 +28,17 @@ export const Login: React.FC = () => {
       // The login function sets the user, so we check the role
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
 
-  // Effect to handle redirect after user state changes from login
-  // This ensures we redirect based on the actual user role
-  if (user) {
-    const redirectPath = user.role === 'admin' ? '/admin' : '/dashboard';
-    navigate(redirectPath, { replace: true });
-  }
+  useEffect(() => {
+    if (user) {
+      const redirectPath = user.role === 'admin' ? '/admin' : '/dashboard';
+      navigate(redirectPath, { replace: true });
+    }
+  }, [user, navigate]);
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark flex items-center justify-center px-4 font-display">

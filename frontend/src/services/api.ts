@@ -1,5 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import type { ApiResponse } from '../types';
+import type { ApiResponse, UserStatus, PractitionerMembership, NextOfKin, ClinicalExecutor } from '../types';
 import type { DocumentData } from '../types/documents';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -157,11 +157,8 @@ export const adminApi = {
       email: string;
       firstName: string;
       lastName: string;
-      membership: {
-        id?: string;
-        type: 'permanent' | 'ad_hoc';
-        marketingAddon: boolean;
-      } | null;
+      status: UserStatus;
+      membership: PractitionerMembership | null;
     }>>>('/admin/practitioners', { params });
   },
 
@@ -179,11 +176,8 @@ export const adminApi = {
       lastName: string;
       phone?: string;
       role: string;
-      membership: {
-        id?: string;
-        type: 'permanent' | 'ad_hoc';
-        marketingAddon: boolean;
-      } | null;
+      status: UserStatus;
+      membership: PractitionerMembership | null;
     }>>(`/admin/practitioners/${userId}`);
   },
 
@@ -243,19 +237,12 @@ export const adminApi = {
       lastName: string;
       phone?: string;
       photoUrl?: string;
+
       role: string;
-      nextOfKin: {
-        name: string;
-        relationship: string;
-        phone: string;
-        email?: string;
-      } | null;
+      status: UserStatus;
+      nextOfKin: NextOfKin | null;
       createdAt: string;
-      membership: {
-        id?: string;
-        type: 'permanent' | 'ad_hoc';
-        marketingAddon: boolean;
-      } | null;
+      membership: PractitionerMembership | null;
       documents: Array<{
         id: string;
         documentType: 'insurance' | 'clinical_registration';
@@ -264,12 +251,7 @@ export const adminApi = {
         expiryDate: string | null;
         createdAt: string;
       }>;
-      clinicalExecutor: {
-        id: string;
-        name: string;
-        email: string;
-        phone: string;
-      } | null;
+      clinicalExecutor: ClinicalExecutor | null;
     }>>(`/admin/practitioners/${userId}/full`);
   },
 
@@ -277,7 +259,9 @@ export const adminApi = {
   updatePractitioner: (userId: string, data: {
     firstName?: string;
     lastName?: string;
+
     phone?: string;
+    status?: UserStatus;
   }) => {
     try {
       validateUserId(userId);
@@ -289,7 +273,9 @@ export const adminApi = {
       id: string;
       firstName: string;
       lastName: string;
+
       phone?: string;
+      status?: UserStatus;
     }>>(`/admin/practitioners/${userId}`, data);
   },
 
@@ -307,12 +293,7 @@ export const adminApi = {
     }
 
     return api.put<ApiResponse<{
-      nextOfKin: {
-        name: string;
-        relationship: string;
-        phone: string;
-        email?: string;
-      };
+      nextOfKin: NextOfKin;
     }>>(`/admin/practitioners/${userId}/next-of-kin`, data);
   },
 
@@ -328,12 +309,7 @@ export const adminApi = {
       return Promise.reject(error);
     }
 
-    return api.put<ApiResponse<{
-      id: string;
-      name: string;
-      email: string;
-      phone: string;
-    }>>(`/admin/practitioners/${userId}/clinical-executor`, data);
+    return api.put<ApiResponse<ClinicalExecutor>>(`/admin/practitioners/${userId}/clinical-executor`, data);
   },
 
   // Delete practitioner

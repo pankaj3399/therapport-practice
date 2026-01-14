@@ -1,5 +1,26 @@
 // User types
 export type UserRole = 'practitioner' | 'admin';
+export type UserStatus = 'pending' | 'active' | 'suspended' | 'rejected';
+
+export interface NextOfKin {
+  name: string;
+  relationship: string;
+  phone: string;
+  email?: string;
+}
+
+export interface PractitionerMembership {
+  id?: string;
+  type: 'permanent' | 'ad_hoc';
+  marketingAddon: boolean;
+}
+
+export interface ClinicalExecutor {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
 
 export interface User {
   id: string;
@@ -9,21 +30,12 @@ export interface User {
   phone?: string;
   photoUrl?: string;
   role: UserRole;
-  status: 'pending' | 'active' | 'suspended' | 'rejected';
-  nextOfKin?: NextOfKin;
+  status: UserStatus;
+  nextOfKin?: NextOfKin; // Note: This might need to match backend response exactly, usually it's null or object
   emailVerifiedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
-  membership?: {
-    type: 'permanent' | 'ad_hoc';
-    marketingAddon: boolean;
-  };
-}
-
-export interface NextOfKin {
-  name: string;
-  email: string;
-  phone: string;
+  membership?: PractitionerMembership;
 }
 
 // Auth types
