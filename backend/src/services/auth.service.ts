@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { users, passwordResets, emailChangeRequests } from '../db/schema';
+import { users, memberships, passwordResets, emailChangeRequests } from '../db/schema';
 import { hashPassword, comparePassword } from '../utils/password.util';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.util';
 import { emailService } from './email.service';
@@ -45,6 +45,13 @@ export class AuthService {
         role: 'practitioner',
       })
       .returning();
+
+    // Create membership
+    await db.insert(memberships).values({
+      userId: newUser.id,
+      type: data.membershipType,
+      marketingAddon: data.marketingAddon,
+    });
 
     // Send welcome email
     await emailService.sendWelcomeEmail({
@@ -156,9 +163,8 @@ export class AuthService {
     });
 
     // Send reset email
-    const resetLink = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/reset-password?token=${token}`;
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'
+      }/reset-password?token=${token}`;
     await emailService.sendPasswordResetEmail({
       firstName: user.firstName,
       email: user.email,
@@ -224,9 +230,8 @@ export class AuthService {
     });
 
     // Send verification email to new address
-    const verificationLink = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/verify-email-change?token=${token}`;
+    const verificationLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'
+      }/verify-email-change?token=${token}`;
     await emailService.sendEmailChangeVerification({
       firstName: user.firstName,
       verificationLink,

@@ -87,6 +87,8 @@ export interface RegisterRequest {
   lastName: string;
   email: string;
   password: string;
+  membershipType: 'permanent' | 'ad_hoc';
+  marketingAddon: boolean;
 }
 
 export interface LoginRequest {

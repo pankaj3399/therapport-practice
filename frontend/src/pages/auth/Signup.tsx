@@ -10,16 +10,25 @@ import { Icon } from '@/components/ui/Icon';
 import type { RegisterRequest } from '../../types';
 
 export const Signup: React.FC = () => {
-  const [formData, setFormData] = useState<RegisterRequest>({
+  const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     email: '',
     password: '',
   });
+  const [membershipType, setMembershipType] = useState<'permanent' | 'ad_hoc'>('permanent');
+  const [marketingAddon, setMarketingAddon] = useState(false);
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  // Update formData when membership selection changes
+  const updateMembership = (type: 'permanent' | 'ad_hoc', marketing: boolean) => {
+    setMembershipType(type);
+    setMarketingAddon(marketing);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +36,11 @@ export const Signup: React.FC = () => {
     setLoading(true);
 
     try {
-      await register(formData);
+      await register({
+        ...formData,
+        membershipType,
+        marketingAddon,
+      } as RegisterRequest);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Registration failed. Please try again.');
@@ -37,11 +50,11 @@ export const Signup: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background-light dark:bg-background-dark flex items-center justify-center px-4 font-display">
+    <div className="min-h-screen bg-background-light dark:bg-background-dark flex items-center justify-center px-4 font-display py-8">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-2xl">
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-4">
             <div className="bg-primary/10 p-3 rounded-xl">
@@ -60,8 +73,8 @@ export const Signup: React.FC = () => {
               <span className="text-sm font-medium">{error}</span>
             </div>
           )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
                 <div className="relative">
@@ -124,6 +137,48 @@ export const Signup: React.FC = () => {
                 />
               </div>
             </div>
+
+            <div className="space-y-3">
+              <Label>Select Membership Plan</Label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Option 1: Permanent Member */}
+                <div
+                  className={`border rounded-xl p-4 cursor-pointer transition-all ${membershipType === 'permanent' && !marketingAddon
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                      : 'border-border hover:border-primary/50'
+                    }`}
+                  onClick={() => updateMembership('permanent', false)}
+                >
+                  <div className="font-bold text-lg mb-1">Permanent</div>
+                  <p className="text-xs text-muted-foreground">Rent a regular slot each week.</p>
+                </div>
+
+                {/* Option 2: Permanent + Marketing */}
+                <div
+                  className={`border rounded-xl p-4 cursor-pointer transition-all ${membershipType === 'permanent' && marketingAddon
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                      : 'border-border hover:border-primary/50'
+                    }`}
+                  onClick={() => updateMembership('permanent', true)}
+                >
+                  <div className="font-bold text-lg mb-1">Permanent + Marketing</div>
+                  <p className="text-xs text-muted-foreground">Rent a regular slot + advertising on website.</p>
+                </div>
+
+                {/* Option 3: Ad Hoc Member */}
+                <div
+                  className={`border rounded-xl p-4 cursor-pointer transition-all ${membershipType === 'ad_hoc'
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                      : 'border-border hover:border-primary/50'
+                    }`}
+                  onClick={() => updateMembership('ad_hoc', false)}
+                >
+                  <div className="font-bold text-lg mb-1">Ad Hoc</div>
+                  <p className="text-xs text-muted-foreground">Book individual hours when available.</p>
+                </div>
+              </div>
+            </div>
+
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Creating account...' : 'Sign Up'}
             </Button>

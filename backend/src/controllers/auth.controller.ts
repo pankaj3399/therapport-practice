@@ -16,6 +16,8 @@ const registerSchema = z.object({
   lastName: z.string().min(1).max(100),
   email: z.string().email(),
   password: z.string().min(8),
+  membershipType: z.enum(['permanent', 'ad_hoc']),
+  marketingAddon: z.boolean(),
 });
 
 const loginSchema = z.object({
