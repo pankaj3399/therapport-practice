@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { users, passwordResets, emailChangeRequests } from '../db/schema';
+import { users, memberships, passwordResets, emailChangeRequests } from '../db/schema';
 import { hashPassword, comparePassword } from '../utils/password.util';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.util';
 import { emailService } from './email.service';
@@ -35,16 +35,27 @@ export class AuthService {
     const tempPassword = data.password;
 
     // Create user
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        email: data.email.toLowerCase(),
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        role: 'practitioner',
-      })
-      .returning();
+    // Create user and membership in a transaction
+    const [newUser] = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .insert(users)
+        .values({
+          email: data.email.toLowerCase(),
+          passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role: 'practitioner',
+        })
+        .returning();
+
+      await tx.insert(memberships).values({
+        userId: u.id,
+        type: data.membershipType,
+        marketingAddon: data.marketingAddon,
+      });
+
+      return [u];
+    });
 
     // Send welcome email
     await emailService.sendWelcomeEmail({
@@ -156,9 +167,8 @@ export class AuthService {
     });
 
     // Send reset email
-    const resetLink = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/reset-password?token=${token}`;
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetLink = `${baseUrl}/reset-password?token=${token}`;
     await emailService.sendPasswordResetEmail({
       firstName: user.firstName,
       email: user.email,
@@ -224,9 +234,8 @@ export class AuthService {
     });
 
     // Send verification email to new address
-    const verificationLink = `${
-      process.env.FRONTEND_URL || 'http://localhost:5173'
-    }/verify-email-change?token=${token}`;
+    const verificationLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'
+      }/verify-email-change?token=${token}`;
     await emailService.sendEmailChangeVerification({
       firstName: user.firstName,
       verificationLink,

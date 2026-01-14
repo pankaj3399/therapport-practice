@@ -87,6 +87,8 @@ export interface RegisterRequest {
   lastName: string;
   email: string;
   password: string;
+  membershipType: MembershipType;
+  marketingAddon: boolean;
 }
 
 export interface LoginRequest {
