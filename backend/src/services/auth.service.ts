@@ -167,8 +167,8 @@ export class AuthService {
     });
 
     // Send reset email
-    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'
-      }/reset-password?token=${token}`;
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetLink = `${baseUrl}/reset-password?token=${token}`;
     await emailService.sendPasswordResetEmail({
       firstName: user.firstName,
       email: user.email,
