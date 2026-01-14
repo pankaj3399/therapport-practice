@@ -9,6 +9,15 @@ export interface NextOfKin {
   email?: string;
 }
 
+export interface PractitionerDocument {
+  id: string;
+  documentType: 'insurance' | 'clinical_registration';
+  fileName: string;
+  fileUrl: string;
+  expiryDate: string | null;
+  createdAt: string;
+}
+
 export interface PractitionerMembership {
   id?: string;
   type: 'permanent' | 'ad_hoc';
@@ -78,5 +87,11 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+  pagination?: {
+    page: number;
+    limit: number;
+    totalCount: number;
+    totalPages: number;
+  };
 }
 

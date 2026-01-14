@@ -22,7 +22,7 @@ import { ProfileTab } from './components/ProfileTab';
 import { MembershipTab } from './components/MembershipTab';
 import { NextOfKinTab } from './components/NextOfKinTab';
 import { ClinicalTab } from './components/ClinicalTab';
-import { UserStatus, PractitionerMembership, NextOfKin, ClinicalExecutor } from '@/types';
+import { UserStatus, PractitionerMembership, NextOfKin, ClinicalExecutor, PractitionerDocument } from '@/types';
 
 const statusColors: Record<UserStatus, string> = {
     pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -50,14 +50,7 @@ interface FullPractitioner {
     status: UserStatus;
     membership: PractitionerMembership | null;
     nextOfKin: NextOfKin | null;
-    documents: Array<{
-        id: string;
-        documentType: 'insurance' | 'clinical_registration';
-        fileName: string;
-        fileUrl: string;
-        expiryDate: string | null;
-        createdAt: string;
-    }>;
+    documents: PractitionerDocument[];
     clinicalExecutor: ClinicalExecutor | null;
 }
 
@@ -65,6 +58,9 @@ interface FullPractitioner {
 export const PractitionerManagement: React.FC = () => {
     const { user } = useAuth();
     const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const limit = 10;
     const [selectedPractitioner, setSelectedPractitioner] = useState<FullPractitioner | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -99,16 +95,24 @@ export const PractitionerManagement: React.FC = () => {
     const fetchPractitioners = useCallback(async (query?: string) => {
         try {
             setLoading(true);
-            const response = await adminApi.getPractitioners(query || undefined);
+            const response = await adminApi.getPractitioners(query || undefined, page, limit);
             if (response.data.success && response.data.data) {
                 setPractitioners(response.data.data);
+                if (response.data.pagination) {
+                    setTotalPages(response.data.pagination.totalPages);
+                }
             }
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to load practitioners' });
         } finally {
             setLoading(false);
         }
-    }, [setMessageWithTimeout]);
+    }, [setMessageWithTimeout, page]);
+
+    // Reset page when search query changes
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery]);
 
     useEffect(() => {
         fetchPractitioners();
@@ -321,58 +325,89 @@ export const PractitionerManagement: React.FC = () => {
                         ) : practitioners.length === 0 ? (
                             <div className="text-center py-8 text-slate-500">No practitioners found</div>
                         ) : (
-                            <div className="border rounded-lg overflow-hidden max-h-[500px] overflow-y-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="min-w-[120px]">Name</TableHead>
-                                            <TableHead className="min-w-[150px]">Email</TableHead>
-                                            <TableHead className="min-w-[100px]">Membership</TableHead>
-                                            <TableHead className="min-w-[70px]">Status</TableHead>
-                                            <TableHead className="min-w-[70px]">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {practitioners.map((p) => (
-                                            <TableRow
-                                                key={p.id}
-                                                className={cn('cursor-pointer', selectedPractitioner?.id === p.id && 'bg-slate-50 dark:bg-slate-900')}
-                                                onClick={() => handleSelectPractitioner(p.id)}
-                                            >
-                                                <TableCell className="font-medium">{p.firstName} {p.lastName}</TableCell>
-                                                <TableCell className="text-sm text-slate-500">{p.email}</TableCell>
-                                                <TableCell>
-                                                    {p.membership ? (
-                                                        <div className="flex gap-1">
-                                                            <Badge variant="outline">{p.membership.type}</Badge>
-                                                            {p.membership.marketingAddon && <Badge variant="success">M</Badge>}
-                                                        </div>
-                                                    ) : (
-                                                        <Badge variant="outline">None</Badge>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge className={statusColors[p.status] || 'bg-slate-100'}>
-                                                        {p.status}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleSelectPractitioner(p.id);
-                                                        }}
-                                                    >
-                                                        <Icon name="edit" size={16} />
-                                                    </Button>
-                                                </TableCell>
+                            <>
+                                <div className="border rounded-lg overflow-hidden overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="min-w-[120px]">Name</TableHead>
+                                                <TableHead className="min-w-[150px]">Email</TableHead>
+                                                <TableHead className="min-w-[100px]">Membership</TableHead>
+                                                <TableHead className="min-w-[70px]">Status</TableHead>
+                                                <TableHead className="min-w-[70px]">Actions</TableHead>
                                             </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {practitioners.map((p) => (
+                                                <TableRow
+                                                    key={p.id}
+                                                    className={cn('cursor-pointer', selectedPractitioner?.id === p.id && 'bg-slate-50 dark:bg-slate-900')}
+                                                    onClick={() => handleSelectPractitioner(p.id)}
+                                                >
+                                                    <TableCell className="font-medium">{p.firstName} {p.lastName}</TableCell>
+                                                    <TableCell className="text-sm text-slate-500">{p.email}</TableCell>
+                                                    <TableCell>
+                                                        {p.membership ? (
+                                                            <div className="flex gap-1">
+                                                                <Badge variant="outline">{p.membership.type}</Badge>
+                                                                {p.membership.marketingAddon && <Badge variant="success">M</Badge>}
+                                                            </div>
+                                                        ) : (
+                                                            <Badge variant="outline">None</Badge>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge className={statusColors[p.status] || 'bg-slate-100'}>
+                                                            {p.status}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleSelectPractitioner(p.id);
+                                                            }}
+                                                        >
+                                                            <Icon name="edit" size={16} />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                {/* Pagination Controls */}
+                                <div className="flex items-center justify-between p-4 border-t">
+                                    <div className="text-sm text-slate-500 text-muted-foreground w-full">
+                                        <div className='w-full flex justify-between items-center'>
+                                            <div>
+                                                Page {page} of {totalPages}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                                    disabled={page === 1 || loading}
+                                                >
+                                                    Previous
+                                                </Button>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                                    disabled={page === totalPages || loading}
+                                                >
+                                                    Next
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
                         )}
                     </CardContent>
                 </Card>

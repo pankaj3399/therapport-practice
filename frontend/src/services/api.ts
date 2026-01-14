@@ -150,8 +150,8 @@ export const adminApi = {
     }>>('/admin/stats');
   },
 
-  getPractitioners: (search?: string) => {
-    const params = search ? { search } : {};
+  getPractitioners: (search?: string, page = 1, limit = 10) => {
+    const params = { ...(search ? { search } : {}), page, limit };
     return api.get<ApiResponse<Array<{
       id: string;
       email: string;

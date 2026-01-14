@@ -5,6 +5,7 @@ import { users, memberships, documents, clinicalExecutors } from '../db/schema';
 import { eq, and, or, ilike, SQL, count, aliasedTable, isNull, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
+import { FileService } from '../services/file.service';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
@@ -30,7 +31,7 @@ const updateNextOfKinSchema = z.object({
   name: z.string().min(1, 'Name is required').trim(),
   relationship: z.string().min(1, 'Relationship is required').trim(),
   phone: z.string().min(1, 'Phone is required').trim(),
-  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')).transform(val => val === '' ? undefined : val),
 });
 
 const updateClinicalExecutorSchema = z.object({
@@ -311,14 +312,14 @@ export class AdminController {
               marketingAddon: practitioner.marketingAddon,
             }
             : null,
-          documents: userDocuments.map((doc) => ({
+          documents: await Promise.all(userDocuments.map(async (doc) => ({
             id: doc.id,
             documentType: doc.documentType,
             fileName: doc.fileName,
-            fileUrl: doc.fileUrl,
+            fileUrl: await FileService.generatePresignedGetUrl(doc.fileUrl, 'documents'),
             expiryDate: doc.expiryDate,
             createdAt: doc.createdAt,
-          })),
+          }))),
           clinicalExecutor: executorResult.length > 0
             ? {
               id: executorResult[0].id,
@@ -350,16 +351,9 @@ export class AdminController {
       const { userId } = req.params;
 
       // Validate request body
-      try {
-        await updatePractitionerSchema.parseAsync(req.body);
-      } catch (error) {
-        if (error instanceof ZodError) {
-          return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
-        }
-        throw error;
-      }
+      const validated = await updatePractitionerSchema.parseAsync(req.body);
 
-      const { firstName, lastName, phone, status } = req.body;
+      const { firstName, lastName, phone, status } = validated;
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
@@ -484,16 +478,9 @@ export class AdminController {
       const { userId } = req.params;
 
       // Validate request body
-      try {
-        await updateClinicalExecutorSchema.parseAsync(req.body);
-      } catch (error) {
-        if (error instanceof ZodError) {
-          return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
-        }
-        throw error;
-      }
+      const validated = await updateClinicalExecutorSchema.parseAsync(req.body);
 
-      const { name, email, phone } = req.body;
+      const { name, email, phone } = validated;
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({

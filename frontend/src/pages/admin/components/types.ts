@@ -1,4 +1,4 @@
-import { UserStatus } from '@/types';
+import { UserStatus, PractitionerDocument } from '@/types';
 
 // Defining shared interfaces for the sub-components
 export interface ProfileTabProps {
@@ -35,14 +35,7 @@ export interface NextOfKinTabProps {
 }
 
 export interface ClinicalTabProps {
-    documents: Array<{
-        id: string;
-        documentType: 'insurance' | 'clinical_registration';
-        fileName: string;
-        fileUrl: string;
-        expiryDate: string | null;
-        createdAt: string;
-    }>;
+    documents: PractitionerDocument[];
     executorForm: {
         name: string;
         email: string;

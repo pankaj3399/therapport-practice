@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select-native';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -58,9 +59,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             </div>
             <div className="space-y-2">
                 <Label htmlFor="status">Account Status</Label>
-                <select
+                <Select
                     id="status"
-                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
                     value={status}
                     onChange={(e) => onChange({ firstName, lastName, phone, status: e.target.value as UserStatus })}
                 >
@@ -68,7 +68,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                     <option value="active">Active</option>
                     <option value="suspended">Suspended</option>
                     <option value="rejected">Rejected</option>
-                </select>
+                </Select>
             </div>
             <div className="flex gap-2">
                 <Button onClick={onSave} disabled={saving}>

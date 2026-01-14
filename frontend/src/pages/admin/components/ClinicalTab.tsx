@@ -6,6 +6,15 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { ClinicalTabProps } from './types';
 
+const isExpired = (dateStr: string | null) => {
+    if (!dateStr) return false;
+    return new Date(dateStr) < new Date();
+};
+
+const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString();
+};
+
 export const ClinicalTab: React.FC<ClinicalTabProps> = ({
     documents,
     executorForm,
@@ -13,15 +22,6 @@ export const ClinicalTab: React.FC<ClinicalTabProps> = ({
     onExecutorChange,
     onSaveExecutor,
 }) => {
-    const isExpired = (dateStr: string | null) => {
-        if (!dateStr) return false;
-        return new Date(dateStr) < new Date();
-    };
-
-    const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleDateString();
-    };
-
     return (
         <div className="space-y-6 pt-4">
             {/* Documents Section */}
