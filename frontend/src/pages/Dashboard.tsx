@@ -246,19 +246,21 @@ export const Dashboard: React.FC = () => {
   }, [user?.id, user?.membership?.marketingAddon, refreshTrigger]);
 
   // Auto-refresh data when tab becomes visible
-  // Auto-refresh data when tab becomes visible
   const isRefreshingRef = useRef(false);
 
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && user && !isRefreshingRef.current) {
         isRefreshingRef.current = true;
-        // Refresh user data (to catch membership/addon changes)
-        await refreshUser();
-        // Trigger document refetch
-        setRefreshTrigger((prev) => prev + 1);
-        // Note: fetchDashboardData will be triggered by user state change in effect at line 126
-        isRefreshingRef.current = false;
+        try {
+          // Refresh user data (to catch membership/addon changes)
+          await refreshUser();
+          // Trigger document refetch
+          setRefreshTrigger((prev) => prev + 1);
+          // Note: fetchDashboardData will be triggered by user state change in effect at line 126
+        } finally {
+          isRefreshingRef.current = false;
+        }
       }
     };
 
@@ -272,16 +274,19 @@ export const Dashboard: React.FC = () => {
   // Initial refresh on mount to ensure fresh data (e.g. navigation from Profile)
   const hasInitialRefreshed = useRef(false);
 
-  // Initial refresh on mount to ensure fresh data (e.g. navigation from Profile)
   useEffect(() => {
     let cancelled = false;
     if (user && !hasInitialRefreshed.current) {
       hasInitialRefreshed.current = true;
-      refreshUser().then(() => {
-        if (!cancelled) {
-          setRefreshTrigger((prev) => prev + 1);
-        }
-      });
+      refreshUser()
+        .then(() => {
+          if (!cancelled) {
+            setRefreshTrigger((prev) => prev + 1);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to refresh user on mount:', error);
+        });
     }
     return () => {
       cancelled = true;
