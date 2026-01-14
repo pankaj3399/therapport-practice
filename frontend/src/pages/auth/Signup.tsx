@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeToggle } from '../../components/theme/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
-import type { RegisterRequest } from '../../types';
+
 
 export const Signup: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -40,7 +40,7 @@ export const Signup: React.FC = () => {
         ...formData,
         membershipType,
         marketingAddon,
-      } as RegisterRequest);
+      });
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Registration failed. Please try again.');
@@ -143,9 +143,17 @@ export const Signup: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Option 1: Permanent Member */}
                 <div
-                  className={`border rounded-xl p-4 cursor-pointer transition-all ${membershipType === 'permanent' && !marketingAddon
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-border hover:border-primary/50'
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      updateMembership('permanent', false);
+                    }
+                  }}
+                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && !marketingAddon
+                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                    : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('permanent', false)}
                 >
@@ -155,9 +163,17 @@ export const Signup: React.FC = () => {
 
                 {/* Option 2: Permanent + Marketing */}
                 <div
-                  className={`border rounded-xl p-4 cursor-pointer transition-all ${membershipType === 'permanent' && marketingAddon
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-border hover:border-primary/50'
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      updateMembership('permanent', true);
+                    }
+                  }}
+                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && marketingAddon
+                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                    : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('permanent', true)}
                 >
@@ -167,9 +183,17 @@ export const Signup: React.FC = () => {
 
                 {/* Option 3: Ad Hoc Member */}
                 <div
-                  className={`border rounded-xl p-4 cursor-pointer transition-all ${membershipType === 'ad_hoc'
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-border hover:border-primary/50'
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      updateMembership('ad_hoc', false);
+                    }
+                  }}
+                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc'
+                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                    : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('ad_hoc', false)}
                 >

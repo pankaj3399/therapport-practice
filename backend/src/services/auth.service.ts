@@ -35,22 +35,26 @@ export class AuthService {
     const tempPassword = data.password;
 
     // Create user
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        email: data.email.toLowerCase(),
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        role: 'practitioner',
-      })
-      .returning();
+    // Create user and membership in a transaction
+    const [newUser] = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .insert(users)
+        .values({
+          email: data.email.toLowerCase(),
+          passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role: 'practitioner',
+        })
+        .returning();
 
-    // Create membership
-    await db.insert(memberships).values({
-      userId: newUser.id,
-      type: data.membershipType,
-      marketingAddon: data.marketingAddon,
+      await tx.insert(memberships).values({
+        userId: u.id,
+        type: data.membershipType,
+        marketingAddon: data.marketingAddon,
+      });
+
+      return [u];
     });
 
     // Send welcome email
