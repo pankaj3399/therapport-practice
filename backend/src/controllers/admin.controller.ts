@@ -488,14 +488,12 @@ export class AdminController {
 
       res.status(200).json({
         success: true,
-        data: {
-          data: results,
-          pagination: {
-            total,
-            page,
-            totalPages,
-            limit,
-          },
+        data: results,
+        pagination: {
+          total,
+          page,
+          totalPages,
+          limit,
         },
       });
     } catch (error: unknown) {
