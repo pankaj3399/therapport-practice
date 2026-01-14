@@ -71,6 +71,7 @@ export class AdminController {
           firstName: users.firstName,
           lastName: users.lastName,
           role: users.role,
+          status: users.status,
           membershipType: memberships.type,
           marketingAddon: memberships.marketingAddon,
         })
@@ -86,6 +87,7 @@ export class AdminController {
         email: p.email,
         firstName: p.firstName,
         lastName: p.lastName,
+        status: p.status,
         membership: p.membershipType
           ? {
             type: p.membershipType,
@@ -169,6 +171,7 @@ export class AdminController {
           lastName: users.lastName,
           phone: users.phone,
           role: users.role,
+          status: users.status,
           membershipId: memberships.id,
           membershipType: memberships.type,
           marketingAddon: memberships.marketingAddon,
@@ -193,6 +196,7 @@ export class AdminController {
           lastName: practitioner.lastName,
           phone: practitioner.phone || undefined,
           role: practitioner.role,
+          status: practitioner.status,
           membership: practitioner.membershipType
             ? {
               id: practitioner.membershipId,
@@ -213,6 +217,299 @@ export class AdminController {
           url: req.originalUrl,
         }
       );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Get full practitioner details including next of kin, documents, clinical executor
+  async getFullPractitioner(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+
+      // Get user with membership
+      const userResult = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          phone: users.phone,
+          photoUrl: users.photoUrl,
+          role: users.role,
+          status: users.status,
+          nextOfKin: users.nextOfKin,
+          createdAt: users.createdAt,
+          membershipId: memberships.id,
+          membershipType: memberships.type,
+          marketingAddon: memberships.marketingAddon,
+        })
+        .from(users)
+        .leftJoin(memberships, eq(users.id, memberships.userId))
+        .where(and(eq(users.id, userId), eq(users.role, 'practitioner')))
+        .limit(1);
+
+      if (userResult.length === 0) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      const practitioner = userResult[0];
+
+      // Get documents
+      const userDocuments = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.userId, userId));
+
+      // Get clinical executor
+      const executorResult = await db
+        .select()
+        .from(clinicalExecutors)
+        .where(eq(clinicalExecutors.userId, userId))
+        .limit(1);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: practitioner.id,
+          email: practitioner.email,
+          firstName: practitioner.firstName,
+          lastName: practitioner.lastName,
+          phone: practitioner.phone || undefined,
+          photoUrl: practitioner.photoUrl || undefined,
+          role: practitioner.role,
+          status: practitioner.status,
+          nextOfKin: practitioner.nextOfKin || null,
+          createdAt: practitioner.createdAt,
+          membership: practitioner.membershipType
+            ? {
+              id: practitioner.membershipId,
+              type: practitioner.membershipType,
+              marketingAddon: practitioner.marketingAddon,
+            }
+            : null,
+          documents: userDocuments.map((doc) => ({
+            id: doc.id,
+            documentType: doc.documentType,
+            fileName: doc.fileName,
+            fileUrl: doc.fileUrl,
+            expiryDate: doc.expiryDate,
+            createdAt: doc.createdAt,
+          })),
+          clinicalExecutor: executorResult.length > 0
+            ? {
+              id: executorResult[0].id,
+              name: executorResult[0].name,
+              email: executorResult[0].email,
+              phone: executorResult[0].phone,
+            }
+            : null,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to get full practitioner details', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update practitioner profile (name, phone)
+  async updatePractitioner(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+      const { firstName, lastName, phone } = req.body;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // Build update object
+      const updateData: { firstName?: string; lastName?: string; phone?: string | null; updatedAt: Date } = {
+        updatedAt: new Date(),
+      };
+
+      if (firstName !== undefined) updateData.firstName = firstName;
+      if (lastName !== undefined) updateData.lastName = lastName;
+      if (phone !== undefined) updateData.phone = phone || null;
+
+      const [updated] = await db
+        .update(users)
+        .set(updateData)
+        .where(eq(users.id, userId))
+        .returning();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: updated.id,
+          firstName: updated.firstName,
+          lastName: updated.lastName,
+          phone: updated.phone || undefined,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to update practitioner', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update next of kin
+  async updateNextOfKin(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+      const { name, relationship, phone, email } = req.body;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      const nextOfKinData = { name, relationship, phone, email };
+
+      const [updated] = await db
+        .update(users)
+        .set({ nextOfKin: nextOfKinData, updatedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          nextOfKin: updated.nextOfKin,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to update next of kin', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update clinical executor
+  async updateClinicalExecutor(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+      const { name, email, phone } = req.body;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // Check if clinical executor exists
+      const existing = await db.query.clinicalExecutors.findFirst({
+        where: eq(clinicalExecutors.userId, userId),
+      });
+
+      let result;
+      if (existing) {
+        // Update existing
+        [result] = await db
+          .update(clinicalExecutors)
+          .set({ name, email, phone, updatedAt: new Date() })
+          .where(eq(clinicalExecutors.userId, userId))
+          .returning();
+      } else {
+        // Create new
+        [result] = await db
+          .insert(clinicalExecutors)
+          .values({ userId, name, email, phone })
+          .returning();
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: result.id,
+          name: result.name,
+          email: result.email,
+          phone: result.phone,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to update clinical executor', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Delete practitioner (hard delete with cascade)
+  async deletePractitioner(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // Delete user (cascades to all related tables due to ON DELETE CASCADE)
+      await db.delete(users).where(eq(users.id, userId));
+
+      res.status(200).json({
+        success: true,
+        message: 'Practitioner deleted successfully',
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to delete practitioner', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }
@@ -488,12 +785,14 @@ export class AdminController {
 
       res.status(200).json({
         success: true,
-        data: results,
-        pagination: {
-          total,
-          page,
-          totalPages,
-          limit,
+        data: {
+          data: results,
+          pagination: {
+            total,
+            page,
+            totalPages,
+            limit,
+          },
         },
       });
     } catch (error: unknown) {

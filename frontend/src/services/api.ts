@@ -227,7 +227,125 @@ export const adminApi = {
       marketingAddon: boolean;
     }>>(`/admin/practitioners/${userId}/membership`, data);
   },
+
+  // Get full practitioner details (documents, next of kin, clinical executor)
+  getFullPractitioner: (userId: string) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.get<ApiResponse<{
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+      photoUrl?: string;
+      role: string;
+      nextOfKin: {
+        name: string;
+        relationship: string;
+        phone: string;
+        email?: string;
+      } | null;
+      createdAt: string;
+      membership: {
+        id?: string;
+        type: 'permanent' | 'ad_hoc';
+        marketingAddon: boolean;
+      } | null;
+      documents: Array<{
+        id: string;
+        documentType: 'insurance' | 'clinical_registration';
+        fileName: string;
+        fileUrl: string;
+        expiryDate: string | null;
+        createdAt: string;
+      }>;
+      clinicalExecutor: {
+        id: string;
+        name: string;
+        email: string;
+        phone: string;
+      } | null;
+    }>>(`/admin/practitioners/${userId}/full`);
+  },
+
+  // Update practitioner profile
+  updatePractitioner: (userId: string, data: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+  }) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.put<ApiResponse<{
+      id: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+    }>>(`/admin/practitioners/${userId}`, data);
+  },
+
+  // Update next of kin
+  updateNextOfKin: (userId: string, data: {
+    name: string;
+    relationship: string;
+    phone: string;
+    email?: string;
+  }) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.put<ApiResponse<{
+      nextOfKin: {
+        name: string;
+        relationship: string;
+        phone: string;
+        email?: string;
+      };
+    }>>(`/admin/practitioners/${userId}/next-of-kin`, data);
+  },
+
+  // Update clinical executor
+  updateClinicalExecutor: (userId: string, data: {
+    name: string;
+    email: string;
+    phone: string;
+  }) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.put<ApiResponse<{
+      id: string;
+      name: string;
+      email: string;
+      phone: string;
+    }>>(`/admin/practitioners/${userId}/clinical-executor`, data);
+  },
+
+  // Delete practitioner
+  deletePractitioner: (userId: string) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.delete<ApiResponse<null>>(`/admin/practitioners/${userId}`);
+  },
 };
 
 export default api;
-

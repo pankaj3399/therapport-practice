@@ -9,6 +9,7 @@ export interface User {
   phone?: string;
   photoUrl?: string;
   role: UserRole;
+  status: 'pending' | 'active' | 'suspended' | 'rejected';
   nextOfKin?: NextOfKin;
   emailVerifiedAt?: Date;
   createdAt: Date;
