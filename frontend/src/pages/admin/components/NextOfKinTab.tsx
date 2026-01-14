@@ -12,9 +12,17 @@ export const NextOfKinTab: React.FC<NextOfKinTabProps> = ({
 }) => {
     const [errors, setErrors] = useState<Record<string, string>>({});
 
+    const FIELD_LABELS: Record<string, string> = {
+        name: "Full Name",
+        relationship: "Relationship",
+        phone: "Phone Number",
+        email: "Email Address"
+    };
+
     const validateField = (field: string, value: string) => {
         if (!value.trim()) {
-            setErrors(prev => ({ ...prev, [field]: `${field.charAt(0).toUpperCase() + field.slice(1)} is required` }));
+            const label = FIELD_LABELS[field] || field.charAt(0).toUpperCase() + field.slice(1);
+            setErrors(prev => ({ ...prev, [field]: `${label} is required` }));
             return false;
         }
         setErrors(prev => {

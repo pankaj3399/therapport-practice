@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ProfileTabProps } from './types';
 import { UserStatus } from '@/types';
+import { USER_STATUS_OPTIONS } from '@/constants';
 
 export const ProfileTab: React.FC<ProfileTabProps> = ({
     firstName,
@@ -64,10 +65,11 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                     value={status}
                     onChange={(e) => onChange({ firstName, lastName, phone, status: e.target.value as UserStatus })}
                 >
-                    <option value="pending">Pending</option>
-                    <option value="active">Active</option>
-                    <option value="suspended">Suspended</option>
-                    <option value="rejected">Rejected</option>
+                    {USER_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                        </option>
+                    ))}
                 </Select>
             </div>
             <div className="flex gap-2">

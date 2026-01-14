@@ -45,6 +45,7 @@ export const users = pgTable(
     status: userStatusEnum('status').notNull().default('active'),
     nextOfKin: jsonb('next_of_kin'),
     emailVerifiedAt: timestamp('email_verified_at'),
+    deletedAt: timestamp('deleted_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

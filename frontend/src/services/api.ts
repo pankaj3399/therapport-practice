@@ -152,6 +152,7 @@ export const adminApi = {
 
   getPractitioners: (search?: string, page = 1, limit = 10) => {
     const params = { ...(search ? { search } : {}), page, limit };
+    // Refine the type to include mandatory pagination at the top level
     return api.get<ApiResponse<Array<{
       id: string;
       email: string;
@@ -159,7 +160,14 @@ export const adminApi = {
       lastName: string;
       status: UserStatus;
       membership: PractitionerMembership | null;
-    }>>>('/admin/practitioners', { params });
+    }>> & {
+      pagination: {
+        page: number;
+        limit: number;
+        totalCount: number;
+        totalPages: number;
+      }
+    }>('/admin/practitioners', { params });
   },
 
   getPractitioner: (userId: string) => {
@@ -259,7 +267,6 @@ export const adminApi = {
   updatePractitioner: (userId: string, data: {
     firstName?: string;
     lastName?: string;
-
     phone?: string;
     status?: UserStatus;
   }) => {
@@ -273,7 +280,6 @@ export const adminApi = {
       id: string;
       firstName: string;
       lastName: string;
-
       phone?: string;
       status?: UserStatus;
     }>>(`/admin/practitioners/${userId}`, data);

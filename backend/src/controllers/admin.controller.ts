@@ -1,7 +1,20 @@
 import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { users, memberships, documents, clinicalExecutors } from '../db/schema';
+import {
+  users,
+  memberships,
+  documents,
+  clinicalExecutors,
+  bookings,
+  creditLedgers,
+  freeBookingVouchers,
+  kioskLogs,
+  invoices,
+  emailNotifications,
+  passwordResets,
+  emailChangeRequests
+} from '../db/schema';
 import { eq, and, or, ilike, SQL, count, aliasedTable, isNull, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
@@ -420,8 +433,9 @@ export class AdminController {
       const { userId } = req.params;
 
       // Validate request body
+      let validated;
       try {
-        await updateNextOfKinSchema.parseAsync(req.body);
+        validated = await updateNextOfKinSchema.parseAsync(req.body);
       } catch (error) {
         if (error instanceof ZodError) {
           return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
@@ -429,7 +443,7 @@ export class AdminController {
         throw error;
       }
 
-      const { name, relationship, phone, email } = req.body;
+      const { name, relationship, phone, email } = validated;
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
@@ -543,6 +557,8 @@ export class AdminController {
       }
 
       const { userId } = req.params;
+      const { confirm } = req.query;
+      const isHardDelete = confirm === 'true';
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
@@ -553,13 +569,62 @@ export class AdminController {
         return res.status(404).json({ success: false, error: 'Practitioner not found' });
       }
 
-      // Delete user (cascades to all related tables due to ON DELETE CASCADE)
-      await db.delete(users).where(eq(users.id, userId));
+      // 1. Audit - Gather counts of related entities
+      const counts = await Promise.all([
+        db.select({ count: count() }).from(memberships).where(eq(memberships.userId, userId)),
+        db.select({ count: count() }).from(bookings).where(eq(bookings.userId, userId)),
+        db.select({ count: count() }).from(creditLedgers).where(eq(creditLedgers.userId, userId)),
+        db.select({ count: count() }).from(freeBookingVouchers).where(eq(freeBookingVouchers.userId, userId)),
+        db.select({ count: count() }).from(documents).where(eq(documents.userId, userId)),
+        db.select({ count: count() }).from(clinicalExecutors).where(eq(clinicalExecutors.userId, userId)),
+        db.select({ count: count() }).from(kioskLogs).where(eq(kioskLogs.userId, userId)),
+        db.select({ count: count() }).from(invoices).where(eq(invoices.userId, userId)),
+        db.select({ count: count() }).from(emailNotifications).where(eq(emailNotifications.userId, userId)),
+        db.select({ count: count() }).from(passwordResets).where(eq(passwordResets.userId, userId)),
+        db.select({ count: count() }).from(emailChangeRequests).where(eq(emailChangeRequests.userId, userId)),
+      ]);
 
-      res.status(200).json({
-        success: true,
-        message: 'Practitioner deleted successfully',
-      });
+      const auditData = {
+        action: isHardDelete ? 'HARD_DELETE_PRACTITIONER' : 'SOFT_DELETE_PRACTITIONER',
+        targetUserId: userId,
+        performedBy: req.user.id,
+        timestamp: new Date(),
+        affectedEntities: {
+          memberships: counts[0][0].count,
+          bookings: counts[1][0].count,
+          creditLedgers: counts[2][0].count,
+          freeBookingVouchers: counts[3][0].count,
+          documents: counts[4][0].count,
+          clinicalExecutors: counts[5][0].count,
+          kioskLogs: counts[6][0].count,
+          invoices: counts[7][0].count,
+          emailNotifications: counts[8][0].count,
+          passwordResets: counts[9][0].count,
+          emailChangeRequests: counts[10][0].count,
+        }
+      };
+
+      // Log the audit record
+      logger.warn(`[AUDIT] ${JSON.stringify(auditData)}`);
+
+      if (isHardDelete) {
+        // Hard delete (cascades to all related tables due to ON DELETE CASCADE)
+        await db.delete(users).where(eq(users.id, userId));
+        logger.info(`Practitioner hard deleted: ${userId}`);
+        return res.status(200).json({ success: true, message: 'Practitioner permanently deleted' });
+      } else {
+        // Soft delete / Deactivate
+        await db.update(users)
+          .set({
+            status: 'suspended',
+            deletedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(users.id, userId));
+
+        logger.info(`Practitioner soft deleted/deactivated: ${userId}`);
+        return res.status(200).json({ success: true, message: 'Practitioner deactivated via soft delete' });
+      }
     } catch (error: unknown) {
       logger.error('Failed to delete practitioner', error, {
         userId: req.user?.id,

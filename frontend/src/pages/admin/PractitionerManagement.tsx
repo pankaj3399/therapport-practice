@@ -92,12 +92,13 @@ export const PractitionerManagement: React.FC = () => {
         []
     );
 
-    const fetchPractitioners = useCallback(async (query?: string) => {
+    const fetchPractitioners = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await adminApi.getPractitioners(query || undefined, page, limit);
-            if (response.data.success && response.data.data) {
-                setPractitioners(response.data.data);
+            const response = await adminApi.getPractitioners(searchQuery, page, limit);
+            if (response.data?.success) {
+                setPractitioners(response.data.data || []);
+                // Access pagination from the intersection type properties
                 if (response.data.pagination) {
                     setTotalPages(response.data.pagination.totalPages);
                 }
@@ -107,12 +108,19 @@ export const PractitionerManagement: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [setMessageWithTimeout, page]);
+    }, [searchQuery, page, limit, setMessageWithTimeout]);
 
     // Reset page when search query changes
     useEffect(() => {
         setPage(1);
     }, [searchQuery]);
+
+    // Clamp page if totalPages reduces (e.g. after search/filter)
+    useEffect(() => {
+        if (totalPages > 0 && page > totalPages) {
+            setPage(totalPages);
+        }
+    }, [totalPages, page]);
 
     useEffect(() => {
         fetchPractitioners();
@@ -158,7 +166,7 @@ export const PractitionerManagement: React.FC = () => {
         }
     }, [selectedPractitioner]);
 
-    const handleSearch = () => fetchPractitioners(searchQuery);
+    const handleSearch = () => fetchPractitioners();
 
     const handleSelectPractitioner = async (practitionerId: string) => {
         try {
@@ -197,7 +205,7 @@ export const PractitionerManagement: React.FC = () => {
             } : null);
 
             // Also refresh list to update status badge on main table
-            fetchPractitioners(searchQuery);
+            await fetchPractitioners();
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update profile' });
         } finally {
@@ -228,7 +236,7 @@ export const PractitionerManagement: React.FC = () => {
 
             const [updatedPractitioner] = await Promise.all([
                 adminApi.getFullPractitioner(selectedPractitioner.id),
-                fetchPractitioners(searchQuery)
+                fetchPractitioners()
             ]);
 
             if (updatedPractitioner.data.success && updatedPractitioner.data.data) {
@@ -276,7 +284,7 @@ export const PractitionerManagement: React.FC = () => {
             await adminApi.deletePractitioner(selectedPractitioner.id);
             setMessageWithTimeout({ type: 'success', text: 'Practitioner deleted successfully' });
             setSelectedPractitioner(null);
-            await fetchPractitioners(searchQuery);
+            await fetchPractitioners();
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to delete practitioner' });
         } finally {
@@ -391,7 +399,7 @@ export const PractitionerManagement: React.FC = () => {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                                    disabled={page === 1 || loading}
+                                                    disabled={page <= 1 || totalPages === 0 || loading}
                                                 >
                                                     Previous
                                                 </Button>
@@ -399,7 +407,7 @@ export const PractitionerManagement: React.FC = () => {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                                                    disabled={page === totalPages || loading}
+                                                    disabled={page >= totalPages || totalPages === 0 || loading}
                                                 >
                                                     Next
                                                 </Button>
