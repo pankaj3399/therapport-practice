@@ -208,7 +208,7 @@ export const AdminDashboard: React.FC = () => {
                                 ? 'text-red-500 font-medium'
                                 : item.includes('Expired')
                                   ? 'text-orange-500 font-medium'
-                                  : 'text-slate-700 dark:text-slate-300'
+                                  : 'text-red-500 font-medium' // Default to missing style
                                 }`}
                             >
                               • {item}
