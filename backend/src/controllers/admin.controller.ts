@@ -1,8 +1,8 @@
 import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { users, memberships } from '../db/schema';
-import { eq, and, or, ilike, SQL, count } from 'drizzle-orm';
+import { users, memberships, documents, clinicalExecutors } from '../db/schema';
+import { eq, and, or, ilike, SQL, count, aliasedTable, isNull, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 
@@ -27,7 +27,7 @@ export class AdminController {
       }
 
       const searchQuery = req.query.search as string | undefined;
-      
+
       // Parse and validate pagination parameters
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limitRaw = parseInt(req.query.limit as string) || 20;
@@ -37,7 +37,7 @@ export class AdminController {
 
       // Build where conditions
       const whereConditions: SQL<unknown>[] = [eq(users.role, 'practitioner')];
-      
+
       // Add search filter if provided
       if (searchQuery && searchQuery.trim()) {
         const searchTerm = `%${searchQuery.trim()}%`;
@@ -88,9 +88,9 @@ export class AdminController {
         lastName: p.lastName,
         membership: p.membershipType
           ? {
-              type: p.membershipType,
-              marketingAddon: p.marketingAddon || false,
-            }
+            type: p.membershipType,
+            marketingAddon: p.marketingAddon || false,
+          }
           : null,
       }));
 
@@ -195,10 +195,10 @@ export class AdminController {
           role: practitioner.role,
           membership: practitioner.membershipType
             ? {
-                id: practitioner.membershipId,
-                type: practitioner.membershipType,
-                marketingAddon: practitioner.marketingAddon,
-              }
+              id: practitioner.membershipId,
+              type: practitioner.membershipType,
+              marketingAddon: practitioner.marketingAddon,
+            }
             : null,
         },
       });
@@ -360,6 +360,148 @@ export class AdminController {
         {
           userId: req.user?.id,
           targetUserId: req.params.userId,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+  async getPractitionersWithMissingInfo(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const offset = (page - 1) * limit;
+
+      // Use UTC YYYY-MM-DD for comparison to match "start of day" logic consistently
+      const dateNow = new Date().toISOString().split('T')[0];
+
+      // Aliases for joining documents twice
+      const insuranceDocs = aliasedTable(documents, 'insurance_docs');
+      const registrationDocs = aliasedTable(documents, 'registration_docs');
+
+      // Common Where Clause Conditions
+      const missingInsurance = or(
+        isNull(insuranceDocs.id),
+        sql`${insuranceDocs.expiryDate} < ${dateNow}`
+      );
+
+      const marketingAddonRequired = eq(memberships.marketingAddon, true);
+
+      const missingRegistration = and(
+        marketingAddonRequired,
+        or(
+          isNull(registrationDocs.id),
+          sql`${registrationDocs.expiryDate} < ${dateNow}`
+        )
+      );
+
+      // Removed redundant isNull checks on non-nullable columns (name, email, phone)
+      const missingExecutor = and(
+        marketingAddonRequired,
+        isNull(clinicalExecutors.id)
+      );
+
+      // We want users who have ANY of these missing items
+      const whereClause = and(
+        eq(users.role, 'practitioner'),
+        or(missingInsurance, missingRegistration, missingExecutor)
+      );
+
+      // 1. Get Total Count
+      const [countResult] = await db
+        .select({ count: sql<number>`count(distinct ${users.id})` })
+        .from(users)
+        .leftJoin(memberships, eq(memberships.userId, users.id))
+        .leftJoin(insuranceDocs, and(eq(insuranceDocs.userId, users.id), eq(insuranceDocs.documentType, 'insurance')))
+        .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
+        .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
+        .where(whereClause);
+
+      const total = Number(countResult.count);
+      const totalPages = Math.ceil(total / limit);
+
+      // 2. Get Paginated Data
+      const rows = await db
+        .select({
+          user: users,
+          membership: memberships,
+          insurance: insuranceDocs,
+          registration: registrationDocs,
+          executor: clinicalExecutors,
+        })
+        .from(users)
+        .leftJoin(memberships, eq(memberships.userId, users.id))
+        .leftJoin(insuranceDocs, and(eq(insuranceDocs.userId, users.id), eq(insuranceDocs.documentType, 'insurance')))
+        .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
+        .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
+        .where(whereClause)
+        .orderBy(users.lastName, users.firstName) // Deterministic ordering
+        .limit(limit)
+        .offset(offset);
+
+      const results = rows.map((row) => {
+        const missing: string[] = [];
+
+        // Consistent UTC start-of-day comparison
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const isExpired = (d: string | null) => {
+          if (!d) return false;
+          // Compare string-to-string (YYYY-MM-DD < YYYY-MM-DD) which handles UTC automatically
+          return d < todayStr;
+        }
+
+        // Insurance
+        if (!row.insurance) {
+          missing.push('Insurance (Missing)');
+        } else if (isExpired(row.insurance.expiryDate)) {
+          missing.push('Insurance (Expired)');
+        }
+
+        // Marketing Addon Checks
+        if (row.membership?.marketingAddon) {
+          // Registration
+          if (!row.registration) {
+            missing.push('Registration (Missing)');
+          } else if (isExpired(row.registration.expiryDate)) {
+            missing.push('Registration (Expired)');
+          }
+
+          // Executor
+          if (!row.executor) {
+            missing.push('Clinical executor');
+          }
+          // Note: name, email, phone are not null in schema, so strictly we only check existence
+        }
+
+        return {
+          id: row.user.id,
+          name: `${row.user.firstName} ${row.user.lastName}`,
+          missing,
+        };
+      });
+
+      res.status(200).json({
+        success: true,
+        data: results,
+        pagination: {
+          total,
+          page,
+          totalPages,
+          limit,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error(
+        'Failed to get practitioners with missing info',
+        error,
+        {
+          userId: req.user?.id,
           method: req.method,
           url: req.originalUrl,
         }
