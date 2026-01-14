@@ -4,9 +4,18 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { AccessDenied } from '@/components/AccessDenied';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Icon } from '@/components/ui/Icon';
 import { adminApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
+import { Skeleton } from '@/components/ui/skeleton';
 import axios from 'axios';
 
 export const AdminDashboard: React.FC = () => {
@@ -15,6 +24,12 @@ export const AdminDashboard: React.FC = () => {
   const [practitionerCount, setPractitionerCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
+
+  const [missingInfo, setMissingInfo] = useState<Array<{ id: string; name: string; missing: string[] }>>([]);
+  const [missingInfoLoading, setMissingInfoLoading] = useState(true);
+  const [missingInfoError, setMissingInfoError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -42,11 +57,38 @@ export const AdminDashboard: React.FC = () => {
     }
   }, []);
 
+  const fetchMissingInfo = useCallback(async () => {
+    setMissingInfoLoading(true);
+    setMissingInfoError(null);
+    try {
+      // @ts-ignore - The API return type was updated but Typescript might be lagging or strict about the nested structure match
+      const response = await adminApi.getPractitionersWithMissingInfo(page);
+      if (response.data.success && response.data.data) {
+        // Handle new response structure { data: [], pagination: {} }
+        // We need to cast or access safely because we just changed the API definition
+        const responseData = response.data.data as any;
+        if (responseData.data && Array.isArray(responseData.data)) {
+          setMissingInfo(responseData.data);
+          setTotalPages(responseData.pagination?.totalPages || 1);
+        } else {
+          // Fallback for safety if structure didn't match expectation
+          setMissingInfo([]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch missing info:', error);
+      setMissingInfoError('Failed to load missing information list.');
+    } finally {
+      setMissingInfoLoading(false);
+    }
+  }, [page]);
+
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchStats();
+      fetchMissingInfo();
     }
-  }, [user?.role, fetchStats]);
+  }, [user?.role, fetchStats, fetchMissingInfo]);
 
   if (user?.role !== 'admin') {
     return <AccessDenied />;
@@ -60,7 +102,7 @@ export const AdminDashboard: React.FC = () => {
           <p className="text-slate-500 dark:text-slate-400">Manage practitioners and memberships</p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Practitioners</CardTitle>
@@ -97,6 +139,95 @@ export const AdminDashboard: React.FC = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Missing Information Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-bold flex items-center gap-2">
+              <Icon name="warning" className="text-orange-500" />
+              Missing Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Missing</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {missingInfoLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : missingInfoError ? (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-center py-8 text-red-500">
+                      {missingInfoError}
+                    </TableCell>
+                  </TableRow>
+                ) : missingInfo.length > 0 ? (
+                  missingInfo.map((practitioner) => (
+                    <TableRow key={practitioner.id}>
+                      <TableCell className="font-medium">{practitioner.name}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {practitioner.missing.map((item, index) => (
+                            <span
+                              key={index}
+                              className={`text-sm ${item.includes('Missing') || item.includes('Incomplete')
+                                ? 'text-red-500 font-medium'
+                                : item.includes('Expired')
+                                  ? 'text-orange-500 font-medium'
+                                  : 'text-slate-700 dark:text-slate-300'
+                                }`}
+                            >
+                              • {item}
+                            </span>
+                          ))}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-center py-8 text-slate-500">
+                      No practitioners with missing information found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-end space-x-2 py-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1 || missingInfoLoading}
+                >
+                  Previous
+                </Button>
+                <div className="text-sm font-medium">
+                  Page {page} of {totalPages}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages || missingInfoLoading}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </MainLayout>
   );

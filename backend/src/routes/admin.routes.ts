@@ -21,6 +21,13 @@ router.get(
 );
 
 router.get(
+  '/practitioners/missing-info',
+  authenticate,
+  requireRole('admin'),
+  adminController.getPractitionersWithMissingInfo.bind(adminController)
+);
+
+router.get(
   '/practitioners/:userId',
   authenticate,
   requireRole('admin'),

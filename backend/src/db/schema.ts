@@ -12,6 +12,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
 
 // Enums
 export const userRoleEnum = pgEnum('user_role', ['practitioner', 'admin']);
@@ -233,4 +234,38 @@ export const emailChangeRequests = pgTable('email_change_requests', {
   verified: boolean('verified').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// Relations
+export const usersRelations = relations(users, ({ one, many }) => ({
+  membership: one(memberships, {
+    fields: [users.id],
+    references: [memberships.userId],
+  }),
+  documents: many(documents),
+  clinicalExecutor: one(clinicalExecutors, {
+    fields: [users.id],
+    references: [clinicalExecutors.userId],
+  }),
+}));
+
+export const membershipsRelations = relations(memberships, ({ one }) => ({
+  user: one(users, {
+    fields: [memberships.userId],
+    references: [users.id],
+  }),
+}));
+
+export const documentsRelations = relations(documents, ({ one }) => ({
+  user: one(users, {
+    fields: [documents.userId],
+    references: [users.id],
+  }),
+}));
+
+export const clinicalExecutorsRelations = relations(clinicalExecutors, ({ one }) => ({
+  user: one(users, {
+    fields: [clinicalExecutors.userId],
+    references: [users.id],
+  }),
+}));
 

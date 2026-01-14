@@ -171,7 +171,7 @@ export const adminApi = {
     } catch (error) {
       return Promise.reject(error);
     }
-    
+
     return api.get<ApiResponse<{
       id: string;
       email: string;
@@ -187,6 +187,22 @@ export const adminApi = {
     }>>(`/admin/practitioners/${userId}`);
   },
 
+  getPractitionersWithMissingInfo: (page = 1, limit = 10) => {
+    return api.get<ApiResponse<{
+      data: Array<{
+        id: string;
+        name: string;
+        missing: string[];
+      }>;
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>>('/admin/practitioners/missing-info', { params: { page, limit } });
+  },
+
   updateMembership: (userId: string, data: {
     type?: 'permanent' | 'ad_hoc' | null;
     marketingAddon?: boolean;
@@ -196,7 +212,7 @@ export const adminApi = {
     } catch (error) {
       return Promise.reject(error);
     }
-    
+
     // Validate business rule: marketingAddon can only be true when type === 'permanent'
     // Only validate when type is explicitly provided to allow partial updates
     if (data.marketingAddon === true && data.type !== undefined && data.type !== 'permanent') {
@@ -204,7 +220,7 @@ export const adminApi = {
         new Error('Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.')
       );
     }
-    
+
     return api.put<ApiResponse<{
       id: string;
       type: 'permanent' | 'ad_hoc';
