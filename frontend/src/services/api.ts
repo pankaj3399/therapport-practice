@@ -187,7 +187,7 @@ export const adminApi = {
     }>>(`/admin/practitioners/${userId}`);
   },
 
-  getPractitionersWithMissingInfo: (page = 1, limit = 10) => {
+  getPractitionersWithMissingInfo: (page = 1, limit = 10, signal?: AbortSignal) => {
     return api.get<ApiResponse<{
       data: Array<{
         id: string;
@@ -200,7 +200,7 @@ export const adminApi = {
         total: number;
         totalPages: number;
       };
-    }>>('/admin/practitioners/missing-info', { params: { page, limit } });
+    }>>('/admin/practitioners/missing-info', { params: { page, limit }, signal });
   },
 
   updateMembership: (userId: string, data: {

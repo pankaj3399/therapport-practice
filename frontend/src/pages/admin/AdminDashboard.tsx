@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { AccessDenied } from '@/components/AccessDenied';
@@ -57,38 +57,60 @@ export const AdminDashboard: React.FC = () => {
     }
   }, []);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const fetchMissingInfo = useCallback(async () => {
+    // Cancel previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setMissingInfoLoading(true);
     setMissingInfoError(null);
+
     try {
-      // @ts-ignore - The API return type was updated but Typescript might be lagging or strict about the nested structure match
-      const response = await adminApi.getPractitionersWithMissingInfo(page);
+      const response = await adminApi.getPractitionersWithMissingInfo(page, 10, controller.signal);
       if (response.data.success && response.data.data) {
-        // Handle new response structure { data: [], pagination: {} }
-        // We need to cast or access safely because we just changed the API definition
-        const responseData = response.data.data as any;
-        if (responseData.data && Array.isArray(responseData.data)) {
-          setMissingInfo(responseData.data);
-          setTotalPages(responseData.pagination?.totalPages || 1);
-        } else {
-          // Fallback for safety if structure didn't match expectation
-          setMissingInfo([]);
-        }
+        const { data, pagination } = response.data.data;
+        setMissingInfo(data);
+        setTotalPages(pagination.totalPages);
       }
     } catch (error) {
+      if (axios.isCancel(error)) {
+        return;
+      }
       console.error('Failed to fetch missing info:', error);
       setMissingInfoError('Failed to load missing information list.');
     } finally {
-      setMissingInfoLoading(false);
+      if (abortControllerRef.current === controller) { // Only stop loading if this is the latest request
+        setMissingInfoLoading(false);
+      }
     }
   }, [page]);
 
+  // Separate effect for stats to avoid unnecessary re-fetches when page changes
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchStats();
+    }
+  }, [user?.role, fetchStats]);
+
+  // Effect for missing info
+  useEffect(() => {
+    if (user?.role === 'admin') {
       fetchMissingInfo();
     }
-  }, [user?.role, fetchStats, fetchMissingInfo]);
+    return () => {
+      // Cleanup on unmount or dependency change
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [user?.role, fetchMissingInfo]);
 
   if (user?.role !== 'admin') {
     return <AccessDenied />;
@@ -166,8 +188,11 @@ export const AdminDashboard: React.FC = () => {
                   ))
                 ) : missingInfoError ? (
                   <TableRow>
-                    <TableCell colSpan={2} className="text-center py-8 text-red-500">
-                      {missingInfoError}
+                    <TableCell colSpan={2} className="text-center py-8">
+                      <div className="text-red-500 mb-2">{missingInfoError}</div>
+                      <Button variant="outline" size="sm" onClick={() => fetchMissingInfo()}>
+                        Retry
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ) : missingInfo.length > 0 ? (

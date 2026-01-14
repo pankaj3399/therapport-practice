@@ -377,7 +377,7 @@ export class AdminController {
       const limit = parseInt(req.query.limit as string) || 10;
       const offset = (page - 1) * limit;
 
-      // Use YYYY-MM-DD for comparison to match "start of day" logic
+      // Use UTC YYYY-MM-DD for comparison to match "start of day" logic consistently
       const dateNow = new Date().toISOString().split('T')[0];
 
       // Aliases for joining documents twice
@@ -400,14 +400,10 @@ export class AdminController {
         )
       );
 
+      // Removed redundant isNull checks on non-nullable columns (name, email, phone)
       const missingExecutor = and(
         marketingAddonRequired,
-        or(
-          isNull(clinicalExecutors.id),
-          isNull(clinicalExecutors.name),
-          isNull(clinicalExecutors.email),
-          isNull(clinicalExecutors.phone)
-        )
+        isNull(clinicalExecutors.id)
       );
 
       // We want users who have ANY of these missing items
@@ -444,18 +440,20 @@ export class AdminController {
         .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
         .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
         .where(whereClause)
+        .orderBy(users.lastName, users.firstName) // Deterministic ordering
         .limit(limit)
         .offset(offset);
 
       const results = rows.map((row) => {
         const missing: string[] = [];
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
+
+        // Consistent UTC start-of-day comparison
+        const todayStr = new Date().toISOString().split('T')[0];
 
         const isExpired = (d: string | null) => {
           if (!d) return false;
-          const date = new Date(d);
-          return !isNaN(date.getTime()) && date < now;
+          // Compare string-to-string (YYYY-MM-DD < YYYY-MM-DD) which handles UTC automatically
+          return d < todayStr;
         }
 
         // Insurance
@@ -477,9 +475,8 @@ export class AdminController {
           // Executor
           if (!row.executor) {
             missing.push('Clinical executor');
-          } else if (!row.executor.name || !row.executor.email || !row.executor.phone) {
-            missing.push('Clinical executor (Incomplete)');
           }
+          // Note: name, email, phone are not null in schema, so strictly we only check existence
         }
 
         return {
