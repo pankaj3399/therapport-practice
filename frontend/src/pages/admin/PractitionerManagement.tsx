@@ -199,13 +199,7 @@ export const PractitionerManagement: React.FC = () => {
             setMessageWithTimeout({ type: 'success', text: 'Profile updated successfully' });
 
             // Refresh data locally to avoid full reload flicker
-            setSelectedPractitioner(prev => prev ? {
-                ...prev,
-                ...updateData,
-                phone: updateData.phone || prev.phone
-            } : null);
-
-            // Also refresh list to update status badge on main table
+            await handleSelectPractitioner(selectedPractitioner.id);
             await fetchPractitioners();
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update profile' });
@@ -233,7 +227,7 @@ export const PractitionerManagement: React.FC = () => {
             }
 
             await adminApi.updateMembership(selectedPractitioner.id, updateData);
-            setMessageWithTimeout({ type: 'success', text: updateData.type === null ? 'Membership removed' : 'Membership updated' });
+
 
             const [updatedPractitioner] = await Promise.all([
                 adminApi.getFullPractitioner(selectedPractitioner.id),
@@ -243,6 +237,7 @@ export const PractitionerManagement: React.FC = () => {
             if (updatedPractitioner.data.success && updatedPractitioner.data.data) {
                 setSelectedPractitioner(updatedPractitioner.data.data);
             }
+            setMessageWithTimeout({ type: 'success', text: updateData.type === null ? 'Membership removed' : 'Membership updated' });
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update membership' });
         } finally {
@@ -460,7 +455,7 @@ export const PractitionerManagement: React.FC = () => {
                                                 saving={saving}
                                                 onChange={setProfileForm}
                                                 onSave={handleSaveProfile}
-                                                onDelete={() => handleDeletePractitioner()}
+                                                onDelete={handleDeletePractitioner}
                                                 practitionerName={`${selectedPractitioner.firstName} ${selectedPractitioner.lastName}`}
                                             />
                                         </TabsContent>

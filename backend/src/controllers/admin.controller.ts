@@ -283,7 +283,7 @@ export class AdminController {
         })
         .from(users)
         .leftJoin(memberships, eq(users.id, memberships.userId))
-        .where(and(eq(users.id, userId), eq(users.role, 'practitioner')))
+        .where(and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)))
         .limit(1);
 
       if (userResult.length === 0) {
@@ -447,7 +447,7 @@ export class AdminController {
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
-        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
       });
 
       if (!practitioner) {
@@ -498,7 +498,7 @@ export class AdminController {
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
-        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
       });
 
       if (!practitioner) {
