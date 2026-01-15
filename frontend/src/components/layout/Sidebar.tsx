@@ -92,7 +92,7 @@ export const Sidebar: React.FC = () => {
       {/* User Mini Profile */}
       <div className="flex items-center gap-3 px-2 py-3 border-t border-slate-100 dark:border-slate-800 mt-auto">
         <Avatar className="h-10 w-10">
-          <AvatarImage src="" alt={`${user?.firstName} ${user?.lastName}`} />
+          <AvatarImage src={user?.photoUrl} alt={`${user?.firstName} ${user?.lastName}`} />
           <AvatarFallback className="bg-primary/10 text-primary font-bold">
             {getInitials(user?.firstName, user?.lastName)}
           </AvatarFallback>
