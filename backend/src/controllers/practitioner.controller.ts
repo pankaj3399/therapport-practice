@@ -1,12 +1,13 @@
 import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { bookings, rooms, locations, documents, clinicalExecutors } from '../db/schema';
+import { bookings, rooms, locations, documents, clinicalExecutors, users } from '../db/schema';
 import { eq, and, gte, asc } from 'drizzle-orm';
 import { VoucherService } from '../services/voucher.service';
 import { CreditService } from '../services/credit.service';
 import { FileService } from '../services/file.service';
 import { ReminderService, type DocumentReminderMetadata } from '../services/reminder.service';
+import { emailService } from '../services/email.service';
 import { logger } from '../utils/logger.util';
 import { calculateExpiryStatus } from '../utils/date.util';
 import { z, ZodError } from 'zod';
@@ -75,9 +76,9 @@ export class PractitionerController {
             url: req.originalUrl,
           }
         );
-        res.status(500).json({ 
-          success: false, 
-          error: 'File storage service is not configured' 
+        res.status(500).json({
+          success: false,
+          error: 'File storage service is not configured'
         });
         return;
       }
@@ -124,9 +125,9 @@ export class PractitionerController {
       });
     } catch (error: unknown) {
       if (error instanceof ZodError) {
-        res.status(400).json({ 
-          success: false, 
-          error: error.errors.map(e => e.message).join(', ') 
+        res.status(400).json({
+          success: false,
+          error: error.errors.map(e => e.message).join(', ')
         });
         return;
       }
@@ -184,13 +185,13 @@ export class PractitionerController {
               url: req.originalUrl,
             }
           );
-          res.status(400).json({ 
-            success: false, 
-            error: 'Uploaded file not found. Please try uploading again.' 
+          res.status(400).json({
+            success: false,
+            error: 'Uploaded file not found. Please try uploading again.'
           });
           return;
         }
-        
+
         logger.error(
           `R2 error while verifying ${errorContext} file`,
           error,
@@ -201,9 +202,9 @@ export class PractitionerController {
             url: req.originalUrl,
           }
         );
-        res.status(500).json({ 
-          success: false, 
-          error: 'Failed to verify uploaded file' 
+        res.status(500).json({
+          success: false,
+          error: 'Failed to verify uploaded file'
         });
         return;
       }
@@ -283,6 +284,36 @@ export class PractitionerController {
         );
       }
 
+      // Fetch user details for email notification
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+      });
+
+      // Send email notification to admin
+      if (user) {
+        try {
+          await emailService.sendDocumentUploadNotification({
+            practitionerName: `${user.firstName} ${user.lastName}`,
+            practitionerEmail: user.email,
+            documentType: documentType,
+            documentName: data.fileName,
+            expiryDate: newDocument.expiryDate,
+          });
+        } catch (error) {
+          // Log error but don't fail the request - document upload was successful
+          logger.error(
+            `Failed to send admin notification for ${errorContext} upload`,
+            error,
+            {
+              userId: req.user.id,
+              documentId: newDocument.id,
+              method: req.method,
+              url: req.originalUrl,
+            }
+          );
+        }
+      }
+
       // Generate presigned URL for viewing
       const documentUrl = await FileService.generatePresignedGetUrl(data.filePath, 'documents');
 
@@ -303,9 +334,9 @@ export class PractitionerController {
       });
     } catch (error: unknown) {
       if (error instanceof ZodError) {
-        res.status(400).json({ 
-          success: false, 
-          error: error.errors.map(e => e.message).join(', ') 
+        res.status(400).json({
+          success: false,
+          error: error.errors.map(e => e.message).join(', ')
         });
         return;
       }
@@ -363,7 +394,7 @@ export class PractitionerController {
 
       // Calculate expiry status
       const { isExpired, isExpiringSoon, daysUntilExpiry } = calculateExpiryStatus(document.expiryDate);
-      
+
       res.status(200).json({
         success: true,
         data: {
@@ -456,17 +487,17 @@ export class PractitionerController {
       const isError = error instanceof Error;
       const errorMessage = isError ? error.message : String(error);
       const errorStack = isError ? error.stack : undefined;
-      
+
       // Set errorDetails once: use errorMessage for Error instances, otherwise stringify
       const errorDetails: string = isError
         ? errorMessage
         : (() => {
-            try {
-              return JSON.stringify(error);
-            } catch {
-              return String(error);
-            }
-          })();
+          try {
+            return JSON.stringify(error);
+          } catch {
+            return String(error);
+          }
+        })();
 
       const errorForLogger = isError ? error : new Error(errorDetails);
 
@@ -548,9 +579,9 @@ export class PractitionerController {
       });
     } catch (error: unknown) {
       if (error instanceof ZodError) {
-        return res.status(400).json({ 
-          success: false, 
-          error: error.errors.map(e => e.message).join(', ') 
+        return res.status(400).json({
+          success: false,
+          error: error.errors.map(e => e.message).join(', ')
         });
       }
 

@@ -77,6 +77,14 @@ export interface AdminEscalationData {
   daysOverdue: number;
 }
 
+export interface DocumentUploadNotificationData {
+  practitionerName: string;
+  practitionerEmail: string;
+  documentType: 'insurance' | 'clinical_registration';
+  documentName: string;
+  expiryDate: string | null;
+}
+
 export class EmailService {
   async sendWelcomeEmail(data: WelcomeEmailData): Promise<void> {
     // Escape all user-controlled values
@@ -318,6 +326,64 @@ export class EmailService {
       from: EMAIL_FROM,
       to: adminEmail,
       subject: `Escalation: ${documentTypeLabel} Document Expired - ${data.practitionerName}`,
+      html,
+    });
+  }
+
+  async sendDocumentUploadNotification(data: DocumentUploadNotificationData): Promise<void> {
+    const documentTypeLabel =
+      data.documentType === 'insurance'
+        ? 'Professional Indemnity Insurance'
+        : 'Clinical Registration';
+
+    const expiryDateFormatted = data.expiryDate ? formatDateSafely(data.expiryDate) : 'N/A';
+
+    // Escape all user-controlled values
+    const escapedPractitionerName = escapeHtml(data.practitionerName);
+    const escapedPractitionerEmail = escapeHtml(data.practitionerEmail);
+    const escapedDocumentName = escapeHtml(data.documentName);
+    const escapedDocumentTypeLabel = escapeHtml(documentTypeLabel);
+    const escapedExpiryDateFormatted = escapeHtml(expiryDateFormatted);
+    const uploadDate = escapeHtml(new Date().toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Europe/London',
+    }));
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>New Document Upload</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2c3e50;">New Document Upload Notification</h1>
+            <p>Hello Admin,</p>
+            <p>A practitioner has uploaded a new document. Here are the details:</p>
+            <div style="background-color: #e8f4f8; border-left: 4px solid #3498db; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Practitioner:</strong> ${escapedPractitionerName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Email:</strong> ${escapedPractitionerEmail}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Document Type:</strong> ${escapedDocumentTypeLabel}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Document Name:</strong> ${escapedDocumentName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Expiry Date:</strong> ${escapedExpiryDateFormatted}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Upload Date:</strong> ${uploadDate}</p>
+            </div>
+            <p>Please review this document at your earliest convenience.</p>
+            <p>Best regards,<br>The Therapport System</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'info@therapport.co.uk';
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: adminEmail,
+      subject: `New Document Upload: ${data.practitionerName} - ${documentTypeLabel}`,
       html,
     });
   }
