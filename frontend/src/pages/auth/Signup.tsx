@@ -140,7 +140,7 @@ export const Signup: React.FC = () => {
 
             <div className="space-y-3">
               <Label>Select Membership Plan</Label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Option 1: Permanent Member */}
                 <div
                   role="button"
@@ -191,7 +191,7 @@ export const Signup: React.FC = () => {
                       updateMembership('ad_hoc', false);
                     }
                   }}
-                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc'
+                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && !marketingAddon
                     ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                     : 'border-border hover:border-primary/50'
                     }`}
@@ -199,6 +199,26 @@ export const Signup: React.FC = () => {
                 >
                   <div className="font-bold text-lg mb-1">Ad Hoc</div>
                   <p className="text-xs text-muted-foreground">Book individual hours when available.</p>
+                </div>
+
+                {/* Option 4: Ad Hoc + Marketing */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      updateMembership('ad_hoc', true);
+                    }
+                  }}
+                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && marketingAddon
+                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                    : 'border-border hover:border-primary/50'
+                    }`}
+                  onClick={() => updateMembership('ad_hoc', true)}
+                >
+                  <div className="font-bold text-lg mb-1">Ad Hoc + Marketing</div>
+                  <p className="text-xs text-muted-foreground">Book individual hours + advertising on website.</p>
                 </div>
               </div>
             </div>
