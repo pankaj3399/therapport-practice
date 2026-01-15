@@ -196,11 +196,10 @@ export const PractitionerManagement: React.FC = () => {
                 status: profileForm.status,
             };
             await adminApi.updatePractitioner(selectedPractitioner.id, updateData);
-            setMessageWithTimeout({ type: 'success', text: 'Profile updated successfully' });
-
             // Refresh data locally to avoid full reload flicker
             await handleSelectPractitioner(selectedPractitioner.id);
             await fetchPractitioners();
+            setMessageWithTimeout({ type: 'success', text: 'Profile updated successfully' });
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update profile' });
         } finally {
