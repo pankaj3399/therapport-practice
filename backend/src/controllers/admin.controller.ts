@@ -168,10 +168,23 @@ export class AdminController {
 
       const practitionerCount = result?.count || 0;
 
+      // Count memberships by type
+      const [adHocResult] = await db
+        .select({ count: count() })
+        .from(memberships)
+        .where(eq(memberships.type, 'ad_hoc'));
+
+      const [permanentResult] = await db
+        .select({ count: count() })
+        .from(memberships)
+        .where(eq(memberships.type, 'permanent'));
+
       res.status(200).json({
         success: true,
         data: {
           practitionerCount,
+          adHocCount: adHocResult?.count || 0,
+          permanentCount: permanentResult?.count || 0,
         },
       });
     } catch (error: unknown) {
