@@ -9,6 +9,14 @@ import { ThemeToggle } from '../../components/theme/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
 
 
+
+const MEMBERSHIP_OPTIONS = [
+  { type: 'permanent', marketing: false, label: 'Permanent', description: 'Rent a regular slot each week.' },
+  { type: 'permanent', marketing: true, label: 'Permanent + Marketing', description: 'Rent a regular slot + advertising on website.' },
+  { type: 'ad_hoc', marketing: false, label: 'Ad Hoc', description: 'Book individual hours when available.' },
+  { type: 'ad_hoc', marketing: true, label: 'Ad Hoc + Marketing', description: 'Book individual hours + advertising on website.' },
+] as const;
+
 export const Signup: React.FC = () => {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -141,61 +149,21 @@ export const Signup: React.FC = () => {
             <div className="space-y-3">
               <Label>Select Membership Plan</Label>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Option 1: Permanent Member */}
-                <button
-                  type="button"
-                  aria-pressed={membershipType === 'permanent' && !marketingAddon}
-                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && !marketingAddon
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                    : 'border-border hover:border-primary/50'
-                    }`}
-                  onClick={() => updateMembership('permanent', false)}
-                >
-                  <div className="font-bold text-lg mb-1">Permanent</div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">Rent a regular slot each week.</p>
-                </button>
-
-                {/* Option 2: Permanent + Marketing */}
-                <button
-                  type="button"
-                  aria-pressed={membershipType === 'permanent' && marketingAddon}
-                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && marketingAddon
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                    : 'border-border hover:border-primary/50'
-                    }`}
-                  onClick={() => updateMembership('permanent', true)}
-                >
-                  <div className="font-bold text-lg mb-1">Permanent + Marketing</div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">Rent a regular slot + advertising on website.</p>
-                </button>
-
-                {/* Option 3: Ad Hoc Member */}
-                <button
-                  type="button"
-                  aria-pressed={membershipType === 'ad_hoc' && !marketingAddon}
-                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && !marketingAddon
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                    : 'border-border hover:border-primary/50'
-                    }`}
-                  onClick={() => updateMembership('ad_hoc', false)}
-                >
-                  <div className="font-bold text-lg mb-1">Ad Hoc</div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">Book individual hours when available.</p>
-                </button>
-
-                {/* Option 4: Ad Hoc + Marketing */}
-                <button
-                  type="button"
-                  aria-pressed={membershipType === 'ad_hoc' && marketingAddon}
-                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && marketingAddon
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                    : 'border-border hover:border-primary/50'
-                    }`}
-                  onClick={() => updateMembership('ad_hoc', true)}
-                >
-                  <div className="font-bold text-lg mb-1">Ad Hoc + Marketing</div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">Book individual hours + advertising on website.</p>
-                </button>
+                {MEMBERSHIP_OPTIONS.map((option) => (
+                  <button
+                    key={`${option.type}-${option.marketing}`}
+                    type="button"
+                    aria-pressed={membershipType === option.type && marketingAddon === option.marketing}
+                    className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === option.type && marketingAddon === option.marketing
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                      : 'border-border hover:border-primary/50'
+                      }`}
+                    onClick={() => updateMembership(option.type, option.marketing)}
+                  >
+                    <div className="font-bold text-lg mb-1">{option.label}</div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">{option.description}</p>
+                  </button>
+                ))}
               </div>
             </div>
 
