@@ -15,7 +15,7 @@ import {
   passwordResets,
   emailChangeRequests
 } from '../db/schema';
-import { eq, and, or, ilike, SQL, count, aliasedTable, isNull, sql } from 'drizzle-orm';
+import { eq, and, or, ilike, aliasedTable, isNull, sql, SQL, count } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
@@ -570,19 +570,22 @@ export class AdminController {
       }
 
       // 1. Audit - Gather counts of related entities
-      const counts = await Promise.all([
-        db.select({ count: count() }).from(memberships).where(eq(memberships.userId, userId)),
-        db.select({ count: count() }).from(bookings).where(eq(bookings.userId, userId)),
-        db.select({ count: count() }).from(creditLedgers).where(eq(creditLedgers.userId, userId)),
-        db.select({ count: count() }).from(freeBookingVouchers).where(eq(freeBookingVouchers.userId, userId)),
-        db.select({ count: count() }).from(documents).where(eq(documents.userId, userId)),
-        db.select({ count: count() }).from(clinicalExecutors).where(eq(clinicalExecutors.userId, userId)),
-        db.select({ count: count() }).from(kioskLogs).where(eq(kioskLogs.userId, userId)),
-        db.select({ count: count() }).from(invoices).where(eq(invoices.userId, userId)),
-        db.select({ count: count() }).from(emailNotifications).where(eq(emailNotifications.userId, userId)),
-        db.select({ count: count() }).from(passwordResets).where(eq(passwordResets.userId, userId)),
-        db.select({ count: count() }).from(emailChangeRequests).where(eq(emailChangeRequests.userId, userId)),
-      ]);
+      const [aggregatedCounts] = await db
+        .select({
+          memberships: sql<number>`(SELECT count(*) FROM ${memberships} WHERE ${memberships.userId} = ${userId})`,
+          bookings: sql<number>`(SELECT count(*) FROM ${bookings} WHERE ${bookings.userId} = ${userId})`,
+          creditLedgers: sql<number>`(SELECT count(*) FROM ${creditLedgers} WHERE ${creditLedgers.userId} = ${userId})`,
+          freeBookingVouchers: sql<number>`(SELECT count(*) FROM ${freeBookingVouchers} WHERE ${freeBookingVouchers.userId} = ${userId})`,
+          documents: sql<number>`(SELECT count(*) FROM ${documents} WHERE ${documents.userId} = ${userId})`,
+          clinicalExecutors: sql<number>`(SELECT count(*) FROM ${clinicalExecutors} WHERE ${clinicalExecutors.userId} = ${userId})`,
+          kioskLogs: sql<number>`(SELECT count(*) FROM ${kioskLogs} WHERE ${kioskLogs.userId} = ${userId})`,
+          invoices: sql<number>`(SELECT count(*) FROM ${invoices} WHERE ${invoices.userId} = ${userId})`,
+          emailNotifications: sql<number>`(SELECT count(*) FROM ${emailNotifications} WHERE ${emailNotifications.userId} = ${userId})`,
+          passwordResets: sql<number>`(SELECT count(*) FROM ${passwordResets} WHERE ${passwordResets.userId} = ${userId})`,
+          emailChangeRequests: sql<number>`(SELECT count(*) FROM ${emailChangeRequests} WHERE ${emailChangeRequests.userId} = ${userId})`,
+        })
+        .from(users)
+        .where(eq(users.id, userId));
 
       const auditData = {
         action: isHardDelete ? 'HARD_DELETE_PRACTITIONER' : 'SOFT_DELETE_PRACTITIONER',
@@ -590,17 +593,17 @@ export class AdminController {
         performedBy: req.user.id,
         timestamp: new Date(),
         affectedEntities: {
-          memberships: counts[0][0].count,
-          bookings: counts[1][0].count,
-          creditLedgers: counts[2][0].count,
-          freeBookingVouchers: counts[3][0].count,
-          documents: counts[4][0].count,
-          clinicalExecutors: counts[5][0].count,
-          kioskLogs: counts[6][0].count,
-          invoices: counts[7][0].count,
-          emailNotifications: counts[8][0].count,
-          passwordResets: counts[9][0].count,
-          emailChangeRequests: counts[10][0].count,
+          memberships: Number(aggregatedCounts?.memberships || 0),
+          bookings: Number(aggregatedCounts?.bookings || 0),
+          creditLedgers: Number(aggregatedCounts?.creditLedgers || 0),
+          freeBookingVouchers: Number(aggregatedCounts?.freeBookingVouchers || 0),
+          documents: Number(aggregatedCounts?.documents || 0),
+          clinicalExecutors: Number(aggregatedCounts?.clinicalExecutors || 0),
+          kioskLogs: Number(aggregatedCounts?.kioskLogs || 0),
+          invoices: Number(aggregatedCounts?.invoices || 0),
+          emailNotifications: Number(aggregatedCounts?.emailNotifications || 0),
+          passwordResets: Number(aggregatedCounts?.passwordResets || 0),
+          emailChangeRequests: Number(aggregatedCounts?.emailChangeRequests || 0),
         }
       };
 

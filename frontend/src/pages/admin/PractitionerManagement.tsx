@@ -179,6 +179,7 @@ export const PractitionerManagement: React.FC = () => {
             }
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to load practitioner details' });
+            throw error;
         } finally {
             setDetailLoading(false);
         }
@@ -268,8 +269,8 @@ export const PractitionerManagement: React.FC = () => {
         try {
             setSaving(true);
             await adminApi.updateClinicalExecutor(selectedPractitioner.id, clinicalExecutorForm);
-            setMessageWithTimeout({ type: 'success', text: 'Clinical executor updated successfully' });
             await handleSelectPractitioner(selectedPractitioner.id);
+            setMessageWithTimeout({ type: 'success', text: 'Clinical executor updated successfully' });
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update clinical executor' });
         } finally {
