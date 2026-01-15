@@ -88,20 +88,19 @@ export const AdminProfile: React.FC = () => {
 
     const handlePasswordChange = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoadingPassword(true);
         setMessage(null);
 
         if (passwordData.newPassword !== passwordData.confirmPassword) {
             setMessage({ type: 'error', text: 'New passwords do not match' });
-            setLoadingPassword(false);
             return;
         }
 
         if (passwordData.newPassword.length < 8) {
             setMessage({ type: 'error', text: 'Password must be at least 8 characters' });
-            setLoadingPassword(false);
             return;
         }
+
+        setLoadingPassword(true);
 
         try {
             const response = await api.post('/auth/change-password', {
