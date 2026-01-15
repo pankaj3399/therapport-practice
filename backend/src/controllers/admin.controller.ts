@@ -23,14 +23,6 @@ import { FileService } from '../services/file.service';
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
   marketingAddon: z.boolean().optional(),
-}).superRefine((data, ctx) => {
-  if (data.marketingAddon === true && data.type !== undefined && data.type !== 'permanent') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['marketingAddon'],
-      message: 'marketingAddon can only be true for permanent memberships',
-    });
-  }
 });
 
 const updatePractitionerSchema = z.object({
@@ -168,23 +160,20 @@ export class AdminController {
 
       const practitionerCount = result?.count || 0;
 
-      // Count memberships by type
-      const [adHocResult] = await db
-        .select({ count: count() })
-        .from(memberships)
-        .where(eq(memberships.type, 'ad_hoc'));
-
-      const [permanentResult] = await db
-        .select({ count: count() })
-        .from(memberships)
-        .where(eq(memberships.type, 'permanent'));
+      // Count memberships by type in a single query
+      const [membershipCounts] = await db
+        .select({
+          adHocCount: sql<number>`count(*) filter (where ${memberships.type} = 'ad_hoc')`,
+          permanentCount: sql<number>`count(*) filter (where ${memberships.type} = 'permanent')`,
+        })
+        .from(memberships);
 
       res.status(200).json({
         success: true,
         data: {
           practitionerCount,
-          adHocCount: adHocResult?.count || 0,
-          permanentCount: permanentResult?.count || 0,
+          adHocCount: membershipCounts?.adHocCount || 0,
+          permanentCount: membershipCounts?.permanentCount || 0,
         },
       });
     } catch (error: unknown) {
@@ -675,16 +664,7 @@ export class AdminController {
         where: eq(memberships.userId, userId),
       });
 
-      // Additional validation: if marketingAddon is true and type is undefined,
-      // verify the current membership type is 'permanent'
-      if (data.marketingAddon === true && data.type === undefined) {
-        if (!currentMembership || currentMembership.type !== 'permanent') {
-          return res.status(400).json({
-            success: false,
-            error: 'Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.',
-          });
-        }
-      }
+
 
       // Handle membership deletion (type: null)
       if (data.type === null && currentMembership) {
@@ -713,10 +693,7 @@ export class AdminController {
           // If enabling, we already validated type is permanent
         }
 
-        // If type is being changed to ad_hoc, disable marketing add-on
-        if (data.type === 'ad_hoc' && currentMembership.marketingAddon) {
-          updateData.marketingAddon = false;
-        }
+
 
         // Atomic conditional update: include expected current values in WHERE clause
         // to detect concurrent modifications (TOCTOU protection)

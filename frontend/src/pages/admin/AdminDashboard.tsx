@@ -154,7 +154,11 @@ export const AdminDashboard: React.FC = () => {
               <Icon name="activity" className="h-4 w-4 text-slate-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{loading ? '...' : adHocCount ?? 0}</div>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
+              ) : (
+                <div className="text-2xl font-bold">{loading ? '...' : adHocCount ?? 0}</div>
+              )}
             </CardContent>
           </Card>
 
@@ -164,7 +168,11 @@ export const AdminDashboard: React.FC = () => {
               <Icon name="shield" className="h-4 w-4 text-slate-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{loading ? '...' : permanentCount ?? 0}</div>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
+              ) : (
+                <div className="text-2xl font-bold">{loading ? '...' : permanentCount ?? 0}</div>
+              )}
             </CardContent>
           </Card>
 
