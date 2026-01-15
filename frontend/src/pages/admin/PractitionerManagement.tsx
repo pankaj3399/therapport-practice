@@ -117,7 +117,9 @@ export const PractitionerManagement: React.FC = () => {
 
     // Clamp page if totalPages reduces (e.g. after search/filter)
     useEffect(() => {
-        if (totalPages > 0 && page > totalPages) {
+        if (totalPages === 0) {
+            setPage(1);
+        } else if (page > totalPages) {
             setPage(totalPages);
         }
     }, [totalPages, page]);
@@ -346,6 +348,13 @@ export const PractitionerManagement: React.FC = () => {
                                                     key={p.id}
                                                     className={cn('cursor-pointer', selectedPractitioner?.id === p.id && 'bg-slate-50 dark:bg-slate-900')}
                                                     onClick={() => handleSelectPractitioner(p.id)}
+                                                    tabIndex={0}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            handleSelectPractitioner(p.id);
+                                                        }
+                                                    }}
                                                 >
                                                     <TableCell className="font-medium">{p.firstName} {p.lastName}</TableCell>
                                                     <TableCell className="text-sm text-slate-500">{p.email}</TableCell>
