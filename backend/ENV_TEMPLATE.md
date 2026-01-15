@@ -23,6 +23,7 @@ PORT=3000
 
 # Admin Password (for seed script)
 ADMIN_PASSWORD=admin123
+ADMIN_EMAIL=admin123
 
 # Cloudflare R2 Configuration (for file storage)
 # Note: Bucket should be kept PRIVATE - we use presigned URLs for access
