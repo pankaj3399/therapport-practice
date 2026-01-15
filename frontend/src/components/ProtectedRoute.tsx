@@ -6,9 +6,15 @@ import type { UserRole } from '../types';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: UserRole;
+  /** When true, only practitioners can access this route. Admins are redirected to /admin */
+  practitionerOnly?: boolean;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requiredRole,
+  practitionerOnly = false
+}) => {
   const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
@@ -21,6 +27,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Redirect admins away from practitioner-only routes
+  if (practitionerOnly && user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
   }
 
   if (requiredRole && user?.role !== requiredRole) {

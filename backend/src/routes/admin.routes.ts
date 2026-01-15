@@ -34,6 +34,23 @@ router.get(
   adminController.getPractitioner.bind(adminController)
 );
 
+// Get full practitioner details (including documents, next of kin, clinical executor)
+router.get(
+  '/practitioners/:userId/full',
+  authenticate,
+  requireRole('admin'),
+  adminController.getFullPractitioner.bind(adminController)
+);
+
+// Update practitioner profile
+router.put(
+  '/practitioners/:userId',
+  authenticate,
+  requireRole('admin'),
+  adminController.updatePractitioner.bind(adminController)
+);
+
+// Update practitioner membership
 router.put(
   '/practitioners/:userId/membership',
   authenticate,
@@ -41,5 +58,28 @@ router.put(
   adminController.updateMembership.bind(adminController)
 );
 
-export default router;
+// Update practitioner next of kin
+router.put(
+  '/practitioners/:userId/next-of-kin',
+  authenticate,
+  requireRole('admin'),
+  adminController.updateNextOfKin.bind(adminController)
+);
 
+// Update practitioner clinical executor
+router.put(
+  '/practitioners/:userId/clinical-executor',
+  authenticate,
+  requireRole('admin'),
+  adminController.updateClinicalExecutor.bind(adminController)
+);
+
+// Delete practitioner
+router.delete(
+  '/practitioners/:userId',
+  authenticate,
+  requireRole('admin'),
+  adminController.deletePractitioner.bind(adminController)
+);
+
+export default router;

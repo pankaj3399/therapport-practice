@@ -12,7 +12,8 @@ interface NavItem {
   implemented?: boolean;
 }
 
-const navItems: NavItem[] = [
+// Navigation items for practitioners (renters)
+const practitionerNavItems: NavItem[] = [
   { name: 'Dashboard', icon: 'dashboard', path: '/dashboard', implemented: true },
   { name: 'Bookings', icon: 'calendar_month', path: '/bookings', implemented: false },
   { name: 'Finance', icon: 'credit_card', path: '/finance', implemented: false },
@@ -21,9 +22,11 @@ const navItems: NavItem[] = [
   { name: 'Profile', icon: 'person', path: '/profile', implemented: true },
 ];
 
+// Navigation items for admins (not renters)
 const adminNavItems: NavItem[] = [
-  { name: 'Admin Dashboard', icon: 'admin_panel_settings', path: '/admin', implemented: true },
+  { name: 'Dashboard', icon: 'dashboard', path: '/admin', implemented: true },
   { name: 'Practitioners', icon: 'people', path: '/admin/practitioners', implemented: true },
+  { name: 'Profile', icon: 'person', path: '/admin/profile', implemented: true },
 ];
 
 export const Sidebar: React.FC = () => {
@@ -36,6 +39,11 @@ export const Sidebar: React.FC = () => {
     return `${first}${last}`.toUpperCase() || 'U';
   };
 
+  // Determine which nav items to show based on user role
+  const isAdmin = user?.role === 'admin';
+  const navItems = isAdmin ? adminNavItems : practitionerNavItems;
+  const appTitle = isAdmin ? 'Admin Panel' : "Renter's App";
+
   return (
     <aside className="hidden lg:flex flex-col w-72 bg-surface-light dark:bg-surface-dark border-r border-slate-200 dark:border-slate-800 h-full p-6 justify-between shrink-0">
       <div className="flex flex-col gap-8">
@@ -44,7 +52,7 @@ export const Sidebar: React.FC = () => {
           <img src="/logo.png" alt="Therapport" className="h-8 w-auto" />
           <div className="flex flex-col">
             <h1 className="text-slate-900 dark:text-white text-lg font-bold leading-none">Therapport</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">Renter's App</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">{appTitle}</p>
           </div>
         </div>
 
@@ -78,41 +86,6 @@ export const Sidebar: React.FC = () => {
                 </Link>
               );
             })}
-          
-          {/* Admin Navigation - Only visible to admins */}
-          {user?.role === 'admin' && (
-            <>
-              <div className="h-px bg-slate-200 dark:bg-slate-800 my-2" />
-              {adminNavItems
-                .filter((item) => item.implemented === true)
-                .map((item) => {
-                  const isActive = location.pathname === item.path;
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors',
-                        isActive
-                          ? 'bg-primary/10 text-primary'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                      )}
-                    >
-                      <Icon
-                        name={item.icon}
-                        className={cn(
-                          isActive && 'icon-fill',
-                          !isActive && 'group-hover:text-primary transition-colors'
-                        )}
-                      />
-                      <span className={cn('text-sm', isActive ? 'font-bold' : 'font-medium')}>
-                        {item.name}
-                      </span>
-                    </Link>
-                  );
-                })}
-            </>
-          )}
         </nav>
       </div>
 
@@ -129,7 +102,7 @@ export const Sidebar: React.FC = () => {
             {user?.firstName} {user?.lastName}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-            {user?.role === 'practitioner' ? 'Renter' : user?.role}
+            {isAdmin ? 'Administrator' : 'Renter'}
           </p>
         </div>
         <button
@@ -143,4 +116,3 @@ export const Sidebar: React.FC = () => {
     </aside>
   );
 };
-

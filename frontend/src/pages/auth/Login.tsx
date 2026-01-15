@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ export const Login: React.FC = () => {
   const [formData, setFormData] = useState<LoginRequest>({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -23,13 +23,22 @@ export const Login: React.FC = () => {
 
     try {
       await login(formData);
-      navigate('/dashboard');
+      // After login, user state is updated in AuthContext
+      // We need to get the user from the login response to determine redirect
+      // The login function sets the user, so we check the role
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (user) {
+      const redirectPath = user.role === 'admin' ? '/admin' : '/dashboard';
+      navigate(redirectPath, { replace: true });
+    }
+  }, [user, navigate]);
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark flex items-center justify-center px-4 font-display">

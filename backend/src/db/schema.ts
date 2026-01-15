@@ -28,6 +28,7 @@ export const bookingTypeEnum = pgEnum('booking_type', [
 export const documentTypeEnum = pgEnum('document_type', ['insurance', 'clinical_registration']);
 export const kioskActionEnum = pgEnum('kiosk_action', ['sign_in', 'sign_out']);
 export const notificationStatusEnum = pgEnum('notification_status', ['pending', 'sent', 'failed']);
+export const userStatusEnum = pgEnum('user_status', ['pending', 'active', 'suspended', 'rejected']);
 
 // Users table
 export const users = pgTable(
@@ -41,8 +42,10 @@ export const users = pgTable(
     phone: varchar('phone', { length: 50 }),
     photoUrl: varchar('photo_url', { length: 500 }),
     role: userRoleEnum('role').notNull().default('practitioner'),
+    status: userStatusEnum('status').notNull().default('active'),
     nextOfKin: jsonb('next_of_kin'),
     emailVerifiedAt: timestamp('email_verified_at'),
+    deletedAt: timestamp('deleted_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

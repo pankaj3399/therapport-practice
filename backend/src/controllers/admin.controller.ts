@@ -1,10 +1,24 @@
 import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { users, memberships, documents, clinicalExecutors } from '../db/schema';
-import { eq, and, or, ilike, SQL, count, aliasedTable, isNull, sql } from 'drizzle-orm';
+import {
+  users,
+  memberships,
+  documents,
+  clinicalExecutors,
+  bookings,
+  creditLedgers,
+  freeBookingVouchers,
+  kioskLogs,
+  invoices,
+  emailNotifications,
+  passwordResets,
+  emailChangeRequests
+} from '../db/schema';
+import { eq, and, or, ilike, aliasedTable, isNull, sql, SQL, count } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
+import { FileService } from '../services/file.service';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
@@ -17,6 +31,26 @@ const updateMembershipSchema = z.object({
       message: 'marketingAddon can only be true for permanent memberships',
     });
   }
+});
+
+const updatePractitionerSchema = z.object({
+  firstName: z.string().min(1, 'First name is required').trim().optional(),
+  lastName: z.string().min(1, 'Last name is required').trim().optional(),
+  phone: z.string().min(1, 'Phone must be at least 1 character').nullable().optional(),
+  status: z.enum(['pending', 'active', 'suspended', 'rejected']).optional(),
+});
+
+const updateNextOfKinSchema = z.object({
+  name: z.string().min(1, 'Name is required').trim(),
+  relationship: z.string().min(1, 'Relationship is required').trim(),
+  phone: z.string().min(1, 'Phone is required').trim(),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')).transform(val => val === '' ? undefined : val),
+});
+
+const updateClinicalExecutorSchema = z.object({
+  name: z.string().min(1, 'Name is required').trim(),
+  email: z.string().email('Invalid email address'),
+  phone: z.string().min(1, 'Phone is required').trim(),
 });
 
 export class AdminController {
@@ -71,6 +105,7 @@ export class AdminController {
           firstName: users.firstName,
           lastName: users.lastName,
           role: users.role,
+          status: users.status,
           membershipType: memberships.type,
           marketingAddon: memberships.marketingAddon,
         })
@@ -86,6 +121,7 @@ export class AdminController {
         email: p.email,
         firstName: p.firstName,
         lastName: p.lastName,
+        status: p.status,
         membership: p.membershipType
           ? {
             type: p.membershipType,
@@ -169,6 +205,7 @@ export class AdminController {
           lastName: users.lastName,
           phone: users.phone,
           role: users.role,
+          status: users.status,
           membershipId: memberships.id,
           membershipType: memberships.type,
           marketingAddon: memberships.marketingAddon,
@@ -193,6 +230,7 @@ export class AdminController {
           lastName: practitioner.lastName,
           phone: practitioner.phone || undefined,
           role: practitioner.role,
+          status: practitioner.status,
           membership: practitioner.membershipType
             ? {
               id: practitioner.membershipId,
@@ -213,6 +251,390 @@ export class AdminController {
           url: req.originalUrl,
         }
       );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Get full practitioner details including next of kin, documents, clinical executor
+  async getFullPractitioner(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+
+      // Get user with membership
+      const userResult = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          phone: users.phone,
+          photoUrl: users.photoUrl,
+          role: users.role,
+          status: users.status,
+          nextOfKin: users.nextOfKin,
+          createdAt: users.createdAt,
+          membershipId: memberships.id,
+          membershipType: memberships.type,
+          marketingAddon: memberships.marketingAddon,
+        })
+        .from(users)
+        .leftJoin(memberships, eq(users.id, memberships.userId))
+        .where(and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)))
+        .limit(1);
+
+      if (userResult.length === 0) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      const practitioner = userResult[0];
+
+      // Get documents
+      const userDocuments = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.userId, userId));
+
+      // Get clinical executor
+      const executorResult = await db
+        .select()
+        .from(clinicalExecutors)
+        .where(eq(clinicalExecutors.userId, userId))
+        .limit(1);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: practitioner.id,
+          email: practitioner.email,
+          firstName: practitioner.firstName,
+          lastName: practitioner.lastName,
+          phone: practitioner.phone || undefined,
+          photoUrl: practitioner.photoUrl || undefined,
+          role: practitioner.role,
+          status: practitioner.status,
+          nextOfKin: practitioner.nextOfKin || null,
+          createdAt: practitioner.createdAt,
+          membership: practitioner.membershipType
+            ? {
+              id: practitioner.membershipId,
+              type: practitioner.membershipType,
+              marketingAddon: practitioner.marketingAddon,
+            }
+            : null,
+          documents: await Promise.all(userDocuments.map(async (doc) => ({
+            id: doc.id,
+            documentType: doc.documentType,
+            fileName: doc.fileName,
+            fileUrl: await FileService.generatePresignedGetUrl(doc.fileUrl, 'documents'),
+            expiryDate: doc.expiryDate,
+            createdAt: doc.createdAt,
+          }))),
+          clinicalExecutor: executorResult.length > 0
+            ? {
+              id: executorResult[0].id,
+              name: executorResult[0].name,
+              email: executorResult[0].email,
+              phone: executorResult[0].phone,
+            }
+            : null,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to get full practitioner details', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update practitioner profile (name, phone)
+  async updatePractitioner(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+
+      // Validate request body
+      const validated = await updatePractitionerSchema.parseAsync(req.body);
+
+      const { firstName, lastName, phone, status } = validated;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // Build update object
+      const updateData: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string | null;
+        status?: 'pending' | 'active' | 'suspended' | 'rejected';
+        updatedAt: Date
+      } = {
+        updatedAt: new Date(),
+      };
+
+      if (firstName !== undefined) updateData.firstName = firstName;
+      if (lastName !== undefined) updateData.lastName = lastName;
+      if (phone !== undefined) updateData.phone = phone || null;
+      if (status !== undefined) updateData.status = status;
+
+      const [updated] = await db
+        .update(users)
+        .set(updateData)
+        .where(eq(users.id, userId))
+        .returning();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: updated.id,
+          firstName: updated.firstName,
+          lastName: updated.lastName,
+          phone: updated.phone || undefined,
+          status: updated.status,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to update practitioner', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update next of kin
+  async updateNextOfKin(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+
+      // Validate request body
+      let validated;
+      try {
+        validated = await updateNextOfKinSchema.parseAsync(req.body);
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+        }
+        throw error;
+      }
+
+      const { name, relationship, phone, email } = validated;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      const nextOfKinData = { name, relationship, phone, email };
+
+      const [updated] = await db
+        .update(users)
+        .set({ nextOfKin: nextOfKinData, updatedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          nextOfKin: updated.nextOfKin,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to update next of kin', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update clinical executor
+  async updateClinicalExecutor(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+
+      // Validate request body
+      const validated = await updateClinicalExecutorSchema.parseAsync(req.body);
+
+      const { name, email, phone } = validated;
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // Check if clinical executor exists
+      const existing = await db.query.clinicalExecutors.findFirst({
+        where: eq(clinicalExecutors.userId, userId),
+      });
+
+      let result;
+      if (existing) {
+        // Update existing
+        [result] = await db
+          .update(clinicalExecutors)
+          .set({ name, email, phone, updatedAt: new Date() })
+          .where(eq(clinicalExecutors.userId, userId))
+          .returning();
+      } else {
+        // Create new
+        [result] = await db
+          .insert(clinicalExecutors)
+          .values({ userId, name, email, phone })
+          .returning();
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: result.id,
+          name: result.name,
+          email: result.email,
+          phone: result.phone,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to update clinical executor', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Delete practitioner (hard delete with cascade)
+  async deletePractitioner(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId } = req.params;
+      const { confirm } = req.query;
+      const isHardDelete = confirm === 'true';
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // 1. Audit - Gather counts of related entities
+      const [aggregatedCounts] = await db
+        .select({
+          memberships: sql<number>`(SELECT count(*) FROM ${memberships} WHERE ${memberships.userId} = ${userId})`,
+          bookings: sql<number>`(SELECT count(*) FROM ${bookings} WHERE ${bookings.userId} = ${userId})`,
+          creditLedgers: sql<number>`(SELECT count(*) FROM ${creditLedgers} WHERE ${creditLedgers.userId} = ${userId})`,
+          freeBookingVouchers: sql<number>`(SELECT count(*) FROM ${freeBookingVouchers} WHERE ${freeBookingVouchers.userId} = ${userId})`,
+          documents: sql<number>`(SELECT count(*) FROM ${documents} WHERE ${documents.userId} = ${userId})`,
+          clinicalExecutors: sql<number>`(SELECT count(*) FROM ${clinicalExecutors} WHERE ${clinicalExecutors.userId} = ${userId})`,
+          kioskLogs: sql<number>`(SELECT count(*) FROM ${kioskLogs} WHERE ${kioskLogs.userId} = ${userId})`,
+          invoices: sql<number>`(SELECT count(*) FROM ${invoices} WHERE ${invoices.userId} = ${userId})`,
+          emailNotifications: sql<number>`(SELECT count(*) FROM ${emailNotifications} WHERE ${emailNotifications.userId} = ${userId})`,
+          passwordResets: sql<number>`(SELECT count(*) FROM ${passwordResets} WHERE ${passwordResets.userId} = ${userId})`,
+          emailChangeRequests: sql<number>`(SELECT count(*) FROM ${emailChangeRequests} WHERE ${emailChangeRequests.userId} = ${userId})`,
+        })
+        .from(users)
+        .where(eq(users.id, userId));
+
+      const auditData = {
+        action: isHardDelete ? 'HARD_DELETE_PRACTITIONER' : 'SOFT_DELETE_PRACTITIONER',
+        targetUserId: userId,
+        performedBy: req.user.id,
+        timestamp: new Date(),
+        affectedEntities: {
+          memberships: Number(aggregatedCounts?.memberships || 0),
+          bookings: Number(aggregatedCounts?.bookings || 0),
+          creditLedgers: Number(aggregatedCounts?.creditLedgers || 0),
+          freeBookingVouchers: Number(aggregatedCounts?.freeBookingVouchers || 0),
+          documents: Number(aggregatedCounts?.documents || 0),
+          clinicalExecutors: Number(aggregatedCounts?.clinicalExecutors || 0),
+          kioskLogs: Number(aggregatedCounts?.kioskLogs || 0),
+          invoices: Number(aggregatedCounts?.invoices || 0),
+          emailNotifications: Number(aggregatedCounts?.emailNotifications || 0),
+          passwordResets: Number(aggregatedCounts?.passwordResets || 0),
+          emailChangeRequests: Number(aggregatedCounts?.emailChangeRequests || 0),
+        }
+      };
+
+      // Log the audit record
+      logger.warn(`[AUDIT] ${JSON.stringify(auditData)}`);
+
+      if (isHardDelete) {
+        // Hard delete (cascades to all related tables due to ON DELETE CASCADE)
+        await db.delete(users).where(eq(users.id, userId));
+        logger.info(`Practitioner hard deleted: ${userId}`);
+        return res.status(200).json({ success: true, message: 'Practitioner permanently deleted' });
+      } else {
+        // Soft delete / Deactivate
+        await db.update(users)
+          .set({
+            status: 'suspended',
+            deletedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(users.id, userId));
+
+        logger.info(`Practitioner soft deleted/deactivated: ${userId}`);
+        return res.status(200).json({ success: true, message: 'Practitioner deactivated via soft delete' });
+      }
+    } catch (error: unknown) {
+      logger.error('Failed to delete practitioner', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+        method: req.method,
+        url: req.originalUrl,
+      });
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }
@@ -488,12 +910,14 @@ export class AdminController {
 
       res.status(200).json({
         success: true,
-        data: results,
-        pagination: {
-          total,
-          page,
-          totalPages,
-          limit,
+        data: {
+          data: results,
+          pagination: {
+            total,
+            page,
+            totalPages,
+            limit,
+          },
         },
       });
     } catch (error: unknown) {

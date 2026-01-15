@@ -17,8 +17,9 @@ export interface User {
 
 export interface NextOfKin {
   name: string;
-  email: string;
+  relationship: string;
   phone: string;
+  email?: string;
 }
 
 // Membership types

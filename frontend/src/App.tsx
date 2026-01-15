@@ -12,6 +12,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Profile } from './pages/Profile';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { PractitionerManagement } from './pages/admin/PractitionerManagement';
+import { AdminProfile } from './pages/admin/AdminProfile';
 import './styles/globals.css';
 
 function App() {
@@ -29,7 +30,7 @@ function App() {
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute practitionerOnly>
                   <Dashboard />
                 </ProtectedRoute>
               }
@@ -37,7 +38,7 @@ function App() {
             <Route
               path="/profile"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute practitionerOnly>
                   <Profile />
                 </ProtectedRoute>
               }
@@ -58,6 +59,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin/profile"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminProfile />
+                </ProtectedRoute>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
@@ -67,4 +76,3 @@ function App() {
 }
 
 export default App;
-

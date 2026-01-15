@@ -1,5 +1,35 @@
 // User types
 export type UserRole = 'practitioner' | 'admin';
+export type UserStatus = 'pending' | 'active' | 'suspended' | 'rejected';
+
+export interface NextOfKin {
+  name: string;
+  relationship: string;
+  phone: string;
+  email?: string;
+}
+
+export interface PractitionerDocument {
+  id: string;
+  documentType: 'insurance' | 'clinical_registration';
+  fileName: string;
+  fileUrl: string;
+  expiryDate: string | null;
+  createdAt: string;
+}
+
+export interface PractitionerMembership {
+  id?: string;
+  type: 'permanent' | 'ad_hoc';
+  marketingAddon: boolean;
+}
+
+export interface ClinicalExecutor {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
 
 export interface User {
   id: string;
@@ -9,20 +39,12 @@ export interface User {
   phone?: string;
   photoUrl?: string;
   role: UserRole;
-  nextOfKin?: NextOfKin;
+  status: UserStatus;
+  nextOfKin?: NextOfKin; // Note: This might need to match backend response exactly, usually it's null or object
   emailVerifiedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
-  membership?: {
-    type: 'permanent' | 'ad_hoc';
-    marketingAddon: boolean;
-  };
-}
-
-export interface NextOfKin {
-  name: string;
-  email: string;
-  phone: string;
+  membership?: PractitionerMembership;
 }
 
 // Auth types
@@ -65,5 +87,11 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+  pagination?: {
+    page: number;
+    limit: number;
+    totalCount: number;
+    totalPages: number;
+  };
 }
 
