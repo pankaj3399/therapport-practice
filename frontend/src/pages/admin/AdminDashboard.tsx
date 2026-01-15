@@ -22,6 +22,8 @@ export const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [practitionerCount, setPractitionerCount] = useState<number | null>(null);
+  const [adHocCount, setAdHocCount] = useState<number | null>(null);
+  const [permanentCount, setPermanentCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
@@ -38,6 +40,8 @@ export const AdminDashboard: React.FC = () => {
       const response = await adminApi.getAdminStats();
       if (response.data.success && response.data.data) {
         setPractitionerCount(response.data.data.practitionerCount);
+        setAdHocCount(response.data.data.adHocCount);
+        setPermanentCount(response.data.data.permanentCount);
       }
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -121,13 +125,13 @@ export const AdminDashboard: React.FC = () => {
       <div className="space-y-6">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
-          <p className="text-slate-500 dark:text-slate-400">Manage practitioners and memberships</p>
+          <p className="text-slate-500 dark:text-slate-400">Manage members and memberships</p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Practitioners</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Members</CardTitle>
               <Icon name="people" className="h-4 w-4 text-slate-500" />
             </CardHeader>
             <CardContent>
@@ -146,6 +150,42 @@ export const AdminDashboard: React.FC = () => {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Ad-Hoc</CardTitle>
+              <Icon name="activity" className="h-4 w-4 text-slate-500" />
+            </CardHeader>
+            <CardContent>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Ad-Hoc</CardTitle>
+              <Icon name="activity" className="h-4 w-4 text-slate-500" />
+            </CardHeader>
+            <CardContent>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
+              ) : (
+                <div className="text-2xl font-bold">{loading ? '...' : adHocCount ?? 0}</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Permanent</CardTitle>
+              <Icon name="shield" className="h-4 w-4 text-slate-500" />
+            </CardHeader>
+            <CardContent>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
+              ) : (
+                <div className="text-2xl font-bold">{loading ? '...' : permanentCount ?? 0}</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Quick Actions</CardTitle>
               <Icon name="settings" className="h-4 w-4 text-slate-500" />
             </CardHeader>
@@ -156,7 +196,7 @@ export const AdminDashboard: React.FC = () => {
                 onClick={() => navigate('/admin/practitioners')}
               >
                 <Icon name="people" size={18} className="mr-2" />
-                Manage Practitioners
+                Manage Members
               </Button>
             </CardContent>
           </Card>

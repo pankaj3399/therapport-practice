@@ -147,6 +147,8 @@ export const adminApi = {
   getAdminStats: () => {
     return api.get<ApiResponse<{
       practitionerCount: number;
+      adHocCount: number;
+      permanentCount: number;
     }>>('/admin/stats');
   },
 

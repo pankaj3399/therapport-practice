@@ -160,10 +160,20 @@ export class AdminController {
 
       const practitionerCount = result?.count || 0;
 
+      // Count memberships by type in a single query
+      const [membershipCounts] = await db
+        .select({
+          adHocCount: sql<number>`count(*) filter (where ${memberships.type} = 'ad_hoc')`,
+          permanentCount: sql<number>`count(*) filter (where ${memberships.type} = 'permanent')`,
+        })
+        .from(memberships);
+
       res.status(200).json({
         success: true,
         data: {
           practitionerCount,
+          adHocCount: membershipCounts?.adHocCount || 0,
+          permanentCount: membershipCounts?.permanentCount || 0,
         },
       });
     } catch (error: unknown) {
