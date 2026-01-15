@@ -36,6 +36,13 @@
       "when": 1768408062934,
       "tag": "0004_bright_colonel_america",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1768482820960,
+      "tag": "0005_slippery_tigra",
+      "breakpoints": true
     }
   ]
 }
