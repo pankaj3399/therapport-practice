@@ -370,7 +370,7 @@ export class AdminController {
 
       // Verify practitioner exists
       const practitioner = await db.query.users.findFirst({
-        where: and(eq(users.id, userId), eq(users.role, 'practitioner')),
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
       });
 
       if (!practitioner) {

@@ -255,8 +255,8 @@ export const PractitionerManagement: React.FC = () => {
         try {
             setSaving(true);
             await adminApi.updateNextOfKin(selectedPractitioner.id, nextOfKinForm);
-            setMessageWithTimeout({ type: 'success', text: 'Next of kin updated successfully' });
             await handleSelectPractitioner(selectedPractitioner.id);
+            setMessageWithTimeout({ type: 'success', text: 'Next of kin updated successfully' });
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update next of kin' });
         } finally {
@@ -283,7 +283,7 @@ export const PractitionerManagement: React.FC = () => {
         try {
             setSaving(true);
             await adminApi.deletePractitioner(selectedPractitioner.id);
-            setMessageWithTimeout({ type: 'success', text: 'Practitioner deleted successfully' });
+            setMessageWithTimeout({ type: 'success', text: 'Practitioner deactivated successfully' });
             setSelectedPractitioner(null);
             await fetchPractitioners();
         } catch (error: any) {
