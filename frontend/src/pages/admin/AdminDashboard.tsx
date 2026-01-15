@@ -156,6 +156,14 @@ export const AdminDashboard: React.FC = () => {
             <CardContent>
               {statsError ? (
                 <div className="text-2xl font-bold text-slate-400">—</div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Ad-Hoc</CardTitle>
+              <Icon name="activity" className="h-4 w-4 text-slate-500" />
+            </CardHeader>
+            <CardContent>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
               ) : (
                 <div className="text-2xl font-bold">{loading ? '...' : adHocCount ?? 0}</div>
               )}
