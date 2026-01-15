@@ -15,7 +15,9 @@ import { cn } from '@/lib/utils';
 export const AdminProfile: React.FC = () => {
     const { user, updateUser } = useAuth();
     const [activeTab, setActiveTab] = useState('personal');
-    const [loading, setLoading] = useState(false);
+    const [loadingPersonal, setLoadingPersonal] = useState(false);
+    const [loadingPassword, setLoadingPassword] = useState(false);
+    const [loadingEmail, setLoadingEmail] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     // Personal Information
@@ -59,7 +61,7 @@ export const AdminProfile: React.FC = () => {
 
     const handlePersonalInfoSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
+        setLoadingPersonal(true);
         setMessage(null);
 
         try {
@@ -80,26 +82,25 @@ export const AdminProfile: React.FC = () => {
                 text: error.response?.data?.error || 'Failed to update information',
             });
         } finally {
-            setLoading(false);
+            setLoadingPersonal(false);
         }
     };
 
     const handlePasswordChange = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
         setMessage(null);
 
         if (passwordData.newPassword !== passwordData.confirmPassword) {
             setMessage({ type: 'error', text: 'New passwords do not match' });
-            setLoading(false);
             return;
         }
 
         if (passwordData.newPassword.length < 8) {
             setMessage({ type: 'error', text: 'Password must be at least 8 characters' });
-            setLoading(false);
             return;
         }
+
+        setLoadingPassword(true);
 
         try {
             const response = await api.post('/auth/change-password', {
@@ -118,13 +119,13 @@ export const AdminProfile: React.FC = () => {
                 text: error.response?.data?.error || 'Failed to change password',
             });
         } finally {
-            setLoading(false);
+            setLoadingPassword(false);
         }
     };
 
     const handleEmailChange = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
+        setLoadingEmail(true);
         setMessage(null);
 
         try {
@@ -146,7 +147,7 @@ export const AdminProfile: React.FC = () => {
                 text: error.response?.data?.error || 'Failed to send verification email',
             });
         } finally {
-            setLoading(false);
+            setLoadingEmail(false);
         }
     };
 
@@ -307,8 +308,8 @@ export const AdminProfile: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    <Button type="submit" disabled={loading}>
-                                        {loading ? 'Saving...' : 'Save Changes'}
+                                    <Button type="submit" disabled={loadingPersonal}>
+                                        {loadingPersonal ? 'Saving...' : 'Save Changes'}
                                     </Button>
                                 </form>
                             </CardContent>
@@ -395,8 +396,8 @@ export const AdminProfile: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    <Button type="submit" disabled={loading}>
-                                        {loading ? 'Changing...' : 'Change Password'}
+                                    <Button type="submit" disabled={loadingPassword}>
+                                        {loadingPassword ? 'Changing...' : 'Change Password'}
                                     </Button>
                                 </form>
                             </CardContent>
@@ -450,8 +451,8 @@ export const AdminProfile: React.FC = () => {
                                         </p>
                                     </div>
 
-                                    <Button type="submit" disabled={loading}>
-                                        {loading ? 'Sending...' : 'Send Verification Email'}
+                                    <Button type="submit" disabled={loadingEmail}>
+                                        {loadingEmail ? 'Sending...' : 'Send Verification Email'}
                                     </Button>
                                 </form>
                             </CardContent>
