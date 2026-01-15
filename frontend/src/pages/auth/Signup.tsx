@@ -142,84 +142,60 @@ export const Signup: React.FC = () => {
               <Label>Select Membership Plan</Label>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Option 1: Permanent Member */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      updateMembership('permanent', false);
-                    }
-                  }}
-                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && !marketingAddon
+                <button
+                  type="button"
+                  aria-pressed={membershipType === 'permanent' && !marketingAddon}
+                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && !marketingAddon
                     ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                     : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('permanent', false)}
                 >
                   <div className="font-bold text-lg mb-1">Permanent</div>
-                  <p className="text-xs text-muted-foreground">Rent a regular slot each week.</p>
-                </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Rent a regular slot each week.</p>
+                </button>
 
                 {/* Option 2: Permanent + Marketing */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      updateMembership('permanent', true);
-                    }
-                  }}
-                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && marketingAddon
+                <button
+                  type="button"
+                  aria-pressed={membershipType === 'permanent' && marketingAddon}
+                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'permanent' && marketingAddon
                     ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                     : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('permanent', true)}
                 >
                   <div className="font-bold text-lg mb-1">Permanent + Marketing</div>
-                  <p className="text-xs text-muted-foreground">Rent a regular slot + advertising on website.</p>
-                </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Rent a regular slot + advertising on website.</p>
+                </button>
 
                 {/* Option 3: Ad Hoc Member */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      updateMembership('ad_hoc', false);
-                    }
-                  }}
-                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && !marketingAddon
+                <button
+                  type="button"
+                  aria-pressed={membershipType === 'ad_hoc' && !marketingAddon}
+                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && !marketingAddon
                     ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                     : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('ad_hoc', false)}
                 >
                   <div className="font-bold text-lg mb-1">Ad Hoc</div>
-                  <p className="text-xs text-muted-foreground">Book individual hours when available.</p>
-                </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Book individual hours when available.</p>
+                </button>
 
                 {/* Option 4: Ad Hoc + Marketing */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      updateMembership('ad_hoc', true);
-                    }
-                  }}
-                  className={`border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && marketingAddon
+                <button
+                  type="button"
+                  aria-pressed={membershipType === 'ad_hoc' && marketingAddon}
+                  className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === 'ad_hoc' && marketingAddon
                     ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                     : 'border-border hover:border-primary/50'
                     }`}
                   onClick={() => updateMembership('ad_hoc', true)}
                 >
                   <div className="font-bold text-lg mb-1">Ad Hoc + Marketing</div>
-                  <p className="text-xs text-muted-foreground">Book individual hours + advertising on website.</p>
-                </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Book individual hours + advertising on website.</p>
+                </button>
               </div>
             </div>
 
