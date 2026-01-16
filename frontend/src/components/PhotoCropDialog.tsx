@@ -305,7 +305,7 @@ export function PhotoCropDialog({
                                 size="sm"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={uploading}
-                                className="flex-shrink-0"
+                                className="flex-shrink-0 min-w-fit px-3"
                             >
                                 <Icon name="upload" size={18} className="mr-2" />
                                 Choose file

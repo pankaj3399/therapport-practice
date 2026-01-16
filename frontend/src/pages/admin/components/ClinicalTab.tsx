@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,7 +21,44 @@ export const ClinicalTab: React.FC<ClinicalTabProps> = ({
     saving,
     onExecutorChange,
     onSaveExecutor,
+    onUpdateExpiry,
+    practitionerId,
 }) => {
+    const [editingExpiry, setEditingExpiry] = useState<{ [key: string]: string }>({});
+    const [savingExpiry, setSavingExpiry] = useState<{ [key: string]: boolean }>({});
+
+    const handleEditExpiry = (docId: string, currentExpiry: string | null) => {
+        setEditingExpiry({
+            ...editingExpiry,
+            [docId]: currentExpiry ? currentExpiry.split('T')[0] : '',
+        });
+    };
+
+    const handleCancelEdit = (docId: string) => {
+        const newEditing = { ...editingExpiry };
+        delete newEditing[docId];
+        setEditingExpiry(newEditing);
+    };
+
+    const handleSaveExpiry = async (docId: string) => {
+        const expiryValue = editingExpiry[docId];
+        const expiryDate = expiryValue && expiryValue.trim() ? expiryValue.trim() : null;
+
+        setSavingExpiry({ ...savingExpiry, [docId]: true });
+        try {
+            await onUpdateExpiry(docId, expiryDate);
+            const newEditing = { ...editingExpiry };
+            delete newEditing[docId];
+            setEditingExpiry(newEditing);
+        } catch (error) {
+            console.error('Failed to update expiry date:', error);
+        } finally {
+            const newSaving = { ...savingExpiry };
+            delete newSaving[docId];
+            setSavingExpiry(newSaving);
+        }
+    };
+
     return (
         <div className="space-y-6 pt-4">
             {/* Documents Section */}
@@ -31,35 +68,82 @@ export const ClinicalTab: React.FC<ClinicalTabProps> = ({
                     <div className="grid gap-4">
                         {documents.map((doc) => {
                             const expired = isExpired(doc.expiryDate);
+                            const isEditing = editingExpiry[doc.id] !== undefined;
+                            const isSaving = savingExpiry[doc.id] === true;
+
                             return (
-                                <div key={doc.id} className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-800">
-                                            <Icon name="file" className="h-5 w-5 text-slate-500" />
+                                <div key={doc.id} className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-800">
+                                                <Icon name="description" className="h-5 w-5 text-slate-500" />
+                                            </div>
+                                            <div>
+                                                <p className="font-medium text-sm">
+                                                    {doc.documentType === 'insurance' ? 'Insurance' : 'Clinical Registration'}
+                                                </p>
+                                                <a
+                                                    href={doc.fileUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-xs text-blue-600 hover:underline"
+                                                >
+                                                    {doc.fileName}
+                                                </a>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="font-medium text-sm">
-                                                {doc.documentType === 'insurance' ? 'Insurance' : 'Clinical Registration'}
-                                            </p>
-                                            <a
-                                                href={doc.fileUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-xs text-blue-600 hover:underline"
-                                            >
-                                                {doc.fileName}
-                                            </a>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        {doc.expiryDate ? (
-                                            <Badge variant={expired ? "destructive" : "outline"} className={expired ? "" : "text-green-600 border-green-200 bg-green-50"}>
-                                                {expired ? 'Expired' : `Exp: ${formatDate(doc.expiryDate)}`}
-                                            </Badge>
-                                        ) : (
-                                            <Badge variant="secondary">No expiry</Badge>
+                                        {!isEditing && (
+                                            <div className="flex items-center gap-2">
+                                                {doc.expiryDate ? (
+                                                    <Badge variant={expired ? "destructive" : "outline"} className={expired ? "" : "text-green-600 border-green-200 bg-green-50"}>
+                                                        {expired ? 'Expired' : `Exp: ${formatDate(doc.expiryDate)}`}
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="secondary">No expiry</Badge>
+                                                )}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleEditExpiry(doc.id, doc.expiryDate)}
+                                                    disabled={isSaving}
+                                                >
+                                                    <Icon name="edit" size={16} />
+                                                </Button>
+                                            </div>
                                         )}
                                     </div>
+                                    {isEditing && (
+                                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                            <div className="flex-1 space-y-2">
+                                                <Label htmlFor={`expiry-${doc.id}`} className="text-xs">Expiry Date</Label>
+                                                <Input
+                                                    id={`expiry-${doc.id}`}
+                                                    type="date"
+                                                    value={editingExpiry[doc.id] || ''}
+                                                    onChange={(e) => setEditingExpiry({ ...editingExpiry, [doc.id]: e.target.value })}
+                                                    disabled={isSaving}
+                                                />
+                                            </div>
+                                            <div className="flex gap-2 pt-6">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleSaveExpiry(doc.id)}
+                                                    disabled={isSaving}
+                                                >
+                                                    {isSaving ? 'Saving...' : 'Save'}
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleCancelEdit(doc.id)}
+                                                    disabled={isSaving}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}

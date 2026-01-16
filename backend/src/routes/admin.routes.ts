@@ -82,4 +82,12 @@ router.delete(
   adminController.deletePractitioner.bind(adminController)
 );
 
+// Update document expiry date
+router.put(
+  '/practitioners/:userId/documents/:documentId/expiry',
+  authenticate,
+  requireRole('admin'),
+  adminController.updateDocumentExpiry.bind(adminController)
+);
+
 export default router;

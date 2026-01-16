@@ -35,14 +35,8 @@ export const MembershipTab: React.FC<MembershipTabProps> = ({
           id="marketingAddon"
           checked={marketingAddon}
           onChange={(e) => onAddonChange(e.target.checked)}
-          disabled={membershipType !== 'permanent'}
         />
-        <Label
-          htmlFor="marketingAddon"
-          className={membershipType !== 'permanent' ? 'text-slate-400' : ''}
-        >
-          Enable Marketing Add-on
-        </Label>
+        <Label htmlFor="marketingAddon">Enable Marketing Add-on</Label>
       </div>
 
       <Button onClick={onSave} disabled={saving}>

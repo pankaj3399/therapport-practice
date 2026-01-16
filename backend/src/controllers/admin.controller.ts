@@ -19,6 +19,8 @@ import { eq, and, or, ilike, aliasedTable, isNull, sql, SQL, count } from 'drizz
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
+import { ReminderService } from '../services/reminder.service';
+import { calculateExpiryStatus } from '../utils/date.util';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
@@ -43,6 +45,10 @@ const updateClinicalExecutorSchema = z.object({
   name: z.string().min(1, 'Name is required').trim(),
   email: z.string().email('Invalid email address'),
   phone: z.string().min(1, 'Phone is required').trim(),
+});
+
+const updateDocumentExpirySchema = z.object({
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expiry date must be in YYYY-MM-DD format').nullable().optional(),
 });
 
 export class AdminController {
@@ -916,6 +922,106 @@ export class AdminController {
         error,
         {
           userId: req.user?.id,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  // Update document expiry date
+  async updateDocumentExpiry(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const { userId, documentId } = req.params;
+
+      // Validate request body
+      const validated = await updateDocumentExpirySchema.parseAsync(req.body);
+
+      // Verify practitioner exists
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+
+      // Verify document exists and belongs to the practitioner
+      const document = await db.query.documents.findFirst({
+        where: and(eq(documents.id, documentId), eq(documents.userId, userId)),
+      });
+
+      if (!document) {
+        return res.status(404).json({ success: false, error: 'Document not found' });
+      }
+
+      const oldExpiryDate = document.expiryDate;
+      const newExpiryDate = validated.expiryDate || null;
+
+      // Update document expiry date
+      const [updatedDocument] = await db
+        .update(documents)
+        .set({
+          expiryDate: newExpiryDate,
+          updatedAt: new Date(),
+        })
+        .where(eq(documents.id, documentId))
+        .returning();
+
+      // If expiry date changed and new date is provided, reschedule reminders
+      if (oldExpiryDate !== newExpiryDate && newExpiryDate) {
+        // Cancel old reminders
+        await ReminderService.cancelDocumentReminders(documentId);
+
+        // Schedule new reminders with updated expiry date
+        await ReminderService.scheduleDocumentReminders(
+          userId,
+          documentId,
+          document.documentType,
+          document.fileName,
+          newExpiryDate
+        );
+      } else if (oldExpiryDate && !newExpiryDate) {
+        // If expiry date was removed, cancel existing reminders
+        await ReminderService.cancelDocumentReminders(documentId);
+      }
+
+      // Calculate expiry status
+      const { isExpired, isExpiringSoon, daysUntilExpiry } = calculateExpiryStatus(updatedDocument.expiryDate);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          id: updatedDocument.id,
+          documentType: updatedDocument.documentType,
+          fileName: updatedDocument.fileName,
+          expiryDate: updatedDocument.expiryDate,
+          isExpired,
+          isExpiringSoon,
+          daysUntilExpiry,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({
+          success: false,
+          error: 'Validation failed',
+          details: error.flatten(),
+        });
+      }
+
+      logger.error(
+        'Failed to update document expiry',
+        error,
+        {
+          userId: req.user?.id,
+          targetUserId: req.params.userId,
+          documentId: req.params.documentId,
           method: req.method,
           url: req.originalUrl,
         }

@@ -217,14 +217,6 @@ export const adminApi = {
       return Promise.reject(error);
     }
 
-    // Validate business rule: marketingAddon can only be true when type === 'permanent'
-    // Only validate when type is explicitly provided to allow partial updates
-    if (data.marketingAddon === true && data.type !== undefined && data.type !== 'permanent') {
-      return Promise.reject(
-        new Error('Marketing add-on can only be enabled for permanent memberships. Type must be "permanent" when marketingAddon is true.')
-      );
-    }
-
     return api.put<ApiResponse<{
       id: string;
       type: 'permanent' | 'ad_hoc';
@@ -329,6 +321,30 @@ export const adminApi = {
     }
 
     return api.delete<ApiResponse<null>>(`/admin/practitioners/${userId}`);
+  },
+
+  // Update document expiry date
+  updateDocumentExpiry: (userId: string, documentId: string, expiryDate: string | null) => {
+    try {
+      validateUserId(userId);
+      if (!documentId || typeof documentId !== 'string' || documentId.trim().length === 0) {
+        throw new Error(`Invalid documentId parameter: "${documentId}". documentId must be a non-empty string.`);
+      }
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.put<ApiResponse<{
+      id: string;
+      documentType: 'insurance' | 'clinical_registration';
+      fileName: string;
+      expiryDate: string | null;
+      isExpired: boolean;
+      isExpiringSoon: boolean;
+      daysUntilExpiry: number | null;
+    }>>(`/admin/practitioners/${userId}/documents/${documentId}/expiry`, {
+      expiryDate,
+    });
   },
 };
 

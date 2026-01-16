@@ -211,10 +211,6 @@ export const PractitionerManagement: React.FC = () => {
 
     const handleSaveMembership = async () => {
         if (!selectedPractitioner) return;
-        if (marketingAddon && membershipType !== 'permanent') {
-            setMessageWithTimeout({ type: 'error', text: 'Marketing add-on can only be enabled for permanent members' });
-            return;
-        }
         try {
             setSaving(true);
             const updateData: { type?: 'permanent' | 'ad_hoc' | null; marketingAddon?: boolean } = {};
@@ -271,6 +267,18 @@ export const PractitionerManagement: React.FC = () => {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update clinical executor' });
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleUpdateExpiry = async (documentId: string, expiryDate: string | null) => {
+        if (!selectedPractitioner) return;
+        try {
+            await adminApi.updateDocumentExpiry(selectedPractitioner.id, documentId, expiryDate);
+            await handleSelectPractitioner(selectedPractitioner.id);
+            setMessageWithTimeout({ type: 'success', text: 'Document expiry date updated successfully' });
+        } catch (error: any) {
+            setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update expiry date' });
+            throw error;
         }
     };
 
@@ -450,7 +458,7 @@ export const PractitionerManagement: React.FC = () => {
                                             <TabsTrigger value="profile">Profile</TabsTrigger>
                                             <TabsTrigger value="membership">Membership</TabsTrigger>
                                             <TabsTrigger value="nextofkin">Next of Kin</TabsTrigger>
-                                            <TabsTrigger value="clinical">Clinical</TabsTrigger>
+                                            <TabsTrigger value="clinical">Professional</TabsTrigger>
                                         </TabsList>
 
                                         {/* Profile Tab */}
@@ -498,6 +506,8 @@ export const PractitionerManagement: React.FC = () => {
                                                 saving={saving}
                                                 onExecutorChange={setClinicalExecutorForm}
                                                 onSaveExecutor={handleSaveClinicalExecutor}
+                                                onUpdateExpiry={handleUpdateExpiry}
+                                                practitionerId={selectedPractitioner.id}
                                             />
                                         </TabsContent>
                                     </Tabs>
