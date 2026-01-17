@@ -199,30 +199,47 @@ export class CronController {
   /**
    * Process pending reminders
    * This endpoint is called by:
-   * - Vercel Cron Jobs (with x-vercel-cron header)
-   * - Linux node-cron or external services (with x-cron-secret header)
+   * - Vercel Cron Jobs (Authorization: Bearer ${CRON_SECRET})
+   * - External services like node-cron (Authorization: Bearer ${CRON_SECRET})
    */
   async processReminders(req: Request, res: Response) {
     const startTime = new Date().toISOString();
 
-    // Log ALL headers for debugging Vercel cron requests
-    logger.info('Cron endpoint hit - ALL HEADERS', {
+    // Log request for debugging
+    logger.info('Cron endpoint hit', {
       timestamp: startTime,
       method: req.method,
       url: req.originalUrl,
       ip: req.ip,
-      headers: req.headers,
-      // Also log individual headers that might be relevant
-      userAgent: req.headers['user-agent'],
-      authorization: req.headers['authorization'],
-      'x-vercel-cron': req.headers['x-vercel-cron'],
-      'x-cron-secret': req.headers['x-cron-secret'],
+      hasAuthorization: Boolean(req.headers['authorization']),
     });
 
     try {
-      // TEMPORARILY DISABLED: Authentication check removed for debugging
-      // Will be re-enabled once we identify the correct Vercel headers
-      // TODO: Re-implement authentication based on actual Vercel headers
+      // Extract and normalize Authorization header
+      const authorizationHeaderRaw = req.headers['authorization'];
+      const expectedSecret = process.env.CRON_SECRET;
+      
+      // Normalize authorization header (can be string | string[] | undefined)
+      const authorizationHeader = Array.isArray(authorizationHeaderRaw)
+        ? authorizationHeaderRaw[0]
+        : authorizationHeaderRaw;
+      
+      // Check if authorization header matches Bearer ${CRON_SECRET}
+      const hasAuthorization = Boolean(
+        expectedSecret &&
+        authorizationHeader === `Bearer ${expectedSecret}`
+      );
+
+      if (!hasAuthorization) {
+        logger.warn('Unauthorized cron request attempt', {
+          method: req.method,
+          url: req.originalUrl,
+          ip: req.ip,
+        });
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+
+      logger.info('Cron request authenticated successfully');
 
       // Process reminders using internal function
       const result = await this.processRemindersInternal();
