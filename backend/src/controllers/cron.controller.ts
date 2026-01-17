@@ -42,12 +42,17 @@ export class CronController {
    * This can be called directly (e.g., from node-cron) or via HTTP endpoint
    */
   async processRemindersInternal(): Promise<{ processed: number; failed: number; total: number }> {
+    logger.info('Starting reminder processing');
+
     // Get pending reminders
     const pendingReminders = await ReminderService.getPendingReminders();
 
     if (pendingReminders.length === 0) {
+      logger.info('No pending reminders found to process');
       return { processed: 0, failed: 0, total: 0 };
     }
+
+    logger.info(`Found ${pendingReminders.length} pending reminder(s) to process`);
 
     let processed = 0;
     let failed = 0;
@@ -58,11 +63,12 @@ export class CronController {
     );
 
     // Fetch all users in a single query to avoid N+1 problem
-    const allUsers = userIds.length > 0 
-      ? await db.query.users.findMany({
-          where: inArray(users.id, userIds),
-        })
-      : [];
+    const allUsers =
+      userIds.length > 0
+        ? await db.query.users.findMany({
+            where: inArray(users.id, userIds),
+          })
+        : [];
 
     // Build in-memory map for O(1) lookup
     const userMap = new Map(allUsers.map((user) => [user.id, user]));
@@ -137,7 +143,10 @@ export class CronController {
             today.setUTCHours(0, 0, 0, 0);
             const normalizedExpiry = new Date(expiryDate);
             normalizedExpiry.setUTCHours(0, 0, 0, 0);
-            const daysOverdue = Math.max(0, Math.ceil((today.getTime() - normalizedExpiry.getTime()) / MS_PER_DAY));
+            const daysOverdue = Math.max(
+              0,
+              Math.ceil((today.getTime() - normalizedExpiry.getTime()) / MS_PER_DAY)
+            );
 
             await emailService.sendAdminEscalation({
               practitionerName: `${user.firstName} ${user.lastName}`,
@@ -178,38 +187,56 @@ export class CronController {
       }
     }
 
+    logger.info('Reminder processing completed', {
+      processed,
+      failed,
+      total: pendingReminders.length,
+    });
+
     return { processed, failed, total: pendingReminders.length };
   }
 
   /**
    * Process pending reminders
    * This endpoint is called by:
-   * - Vercel Cron Jobs (with x-vercel-signature header)
+   * - Vercel Cron Jobs (with x-vercel-cron header)
    * - Linux node-cron or external services (with x-cron-secret header)
    */
   async processReminders(req: Request, res: Response) {
+    const startTime = new Date().toISOString();
+
+    // Log request at the very start for debugging
+    logger.info('Cron endpoint hit', {
+      timestamp: startTime,
+      method: req.method,
+      url: req.originalUrl,
+      ip: req.ip,
+      hasVercelCronHeader: Boolean(req.headers['x-vercel-cron']),
+      hasCronSecretHeader: Boolean(req.headers['x-cron-secret']),
+    });
+
     try {
-      // Hybrid security: accept either Vercel signature or CRON_SECRET
+      // Hybrid security: accept either Vercel cron header or CRON_SECRET
       // Normalize headers (can be string | string[] | undefined)
-      const vercelSignatureRaw = req.headers['x-vercel-signature'];
+      const vercelCronRaw = req.headers['x-vercel-cron'];
       const providedSecretRaw = req.headers['x-cron-secret'];
-      
-      const vercelSignature = Array.isArray(vercelSignatureRaw)
-        ? vercelSignatureRaw[0]
-        : vercelSignatureRaw;
+
+      const vercelCron = Array.isArray(vercelCronRaw) ? vercelCronRaw[0] : vercelCronRaw;
       const providedSecret = Array.isArray(providedSecretRaw)
         ? providedSecretRaw[0]
         : providedSecretRaw;
-      
+
       const expectedSecret = process.env.CRON_SECRET;
 
-      const isVercelRequest = Boolean(vercelSignature);
+      // Vercel cron jobs send x-vercel-cron header (not x-vercel-signature)
+      const isVercelRequest = Boolean(vercelCron);
       const hasValidSecret = Boolean(expectedSecret && providedSecret === expectedSecret);
 
       if (!isVercelRequest && !hasValidSecret) {
         logger.warn('Unauthorized cron request attempt', {
-          hasVercelSignature: Boolean(vercelSignature),
+          hasVercelCronHeader: Boolean(vercelCron),
           hasSecret: Boolean(providedSecret),
+          hasExpectedSecret: Boolean(expectedSecret),
           method: req.method,
           url: req.originalUrl,
           ip: req.ip,
@@ -217,16 +244,32 @@ export class CronController {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }
 
+      logger.info('Cron request authenticated successfully', {
+        isVercelRequest,
+        hasValidSecret,
+      });
+
       // Process reminders using internal function
       const result = await this.processRemindersInternal();
 
       if (result.total === 0) {
+        logger.info('Cron job completed: No pending reminders to process', {
+          processed: 0,
+          failed: 0,
+          total: 0,
+        });
         return res.status(200).json({
           success: true,
           message: 'No pending reminders to process',
           processed: 0,
         });
       }
+
+      logger.info('Cron job completed successfully', {
+        processed: result.processed,
+        failed: result.failed,
+        total: result.total,
+      });
 
       res.status(200).json({
         success: true,
@@ -239,6 +282,7 @@ export class CronController {
       logger.error('Failed to process reminders', error, {
         method: req.method,
         url: req.originalUrl,
+        timestamp: startTime,
       });
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
@@ -246,4 +290,3 @@ export class CronController {
 }
 
 export const cronController = new CronController();
-
