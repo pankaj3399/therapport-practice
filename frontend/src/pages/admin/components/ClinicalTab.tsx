@@ -22,7 +22,7 @@ export const ClinicalTab: React.FC<ClinicalTabProps> = ({
     onExecutorChange,
     onSaveExecutor,
     onUpdateExpiry,
-    practitionerId,
+    practitionerId: _practitionerId,
 }) => {
     const [editingExpiry, setEditingExpiry] = useState<{ [key: string]: string }>({});
     const [savingExpiry, setSavingExpiry] = useState<{ [key: string]: boolean }>({});
