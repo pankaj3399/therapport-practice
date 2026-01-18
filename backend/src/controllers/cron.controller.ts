@@ -225,12 +225,7 @@ export class CronController {
         : authorizationHeaderRaw;
       
       // Check if authorization header matches Bearer ${CRON_SECRET}
-      const hasAuthorization = Boolean(
-        expectedSecret &&
-        authorizationHeader === `Bearer ${expectedSecret}`
-      );
-
-      if (!hasAuthorization) {
+      if (!expectedSecret || authorizationHeader !== `Bearer ${expectedSecret}`) {
         logger.warn('Unauthorized cron request attempt', {
           method: req.method,
           url: req.originalUrl,
