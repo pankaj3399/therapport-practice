@@ -48,3 +48,13 @@ export function calculateExpiryStatus(expiryDateString: string | null): {
     daysUntilExpiry,
   };
 }
+
+/**
+ * Get today's date as YYYY-MM-DD in UTC.
+ * Useful for credit expiry comparisons and other date-based logic.
+ */
+export function todayUtcString(): string {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().split('T')[0];
+}

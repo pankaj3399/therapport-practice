@@ -32,13 +32,13 @@ interface DashboardData {
   credit: {
     currentMonth: {
       monthYear: string;
-      monthlyCredit: number;
-      usedCredit: number;
+      totalGranted: number;
+      totalUsed: number;
       remainingCredit: number;
     } | null;
     nextMonth: {
       monthYear: string;
-      monthlyCredit: number;
+      nextMonthAllocation: number;
     } | null;
     membershipType: 'permanent' | 'ad_hoc' | null;
   };
@@ -517,22 +517,22 @@ export const Dashboard: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {formatMonthYear(dashboardData.credit.currentMonth.monthYear)} • Used: £
-                    {dashboardData.credit.currentMonth.usedCredit.toFixed(2)} / £
-                    {dashboardData.credit.currentMonth.monthlyCredit.toFixed(2)}
+                    {formatMonthYear(dashboardData.credit.currentMonth.monthYear)} • Total used: £
+                    {dashboardData.credit.currentMonth.totalUsed.toFixed(2)} / £
+                    {dashboardData.credit.currentMonth.totalGranted.toFixed(2)} granted
                   </p>
                   {dashboardData.credit.nextMonth && (
                     <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                      Next month: £{dashboardData.credit.nextMonth.monthlyCredit.toFixed(2)}{' '}
+                      Next month: £{dashboardData.credit.nextMonth.nextMonthAllocation.toFixed(2)}{' '}
                       available
                     </p>
                   )}
                   {/* Low credit warning */}
                   {dashboardData.credit.currentMonth.remainingCredit > 0 &&
-                    dashboardData.credit.currentMonth.monthlyCredit > 0 &&
+                    dashboardData.credit.currentMonth.totalGranted > 0 &&
                     dashboardData.credit.currentMonth.remainingCredit /
-                    dashboardData.credit.currentMonth.monthlyCredit <
-                    0.2 && (
+                      dashboardData.credit.currentMonth.totalGranted <
+                      0.2 && (
                       <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
                         <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
                         <span className="text-orange-700 dark:text-orange-300 font-medium">
@@ -639,7 +639,7 @@ export const Dashboard: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {dashboardData?.upcomingBookings &&
-                      dashboardData.upcomingBookings.length > 0 ? (
+                    dashboardData.upcomingBookings.length > 0 ? (
                       dashboardData.upcomingBookings.map((booking) => (
                         <TableRow key={booking.id}>
                           <TableCell className="font-medium">
