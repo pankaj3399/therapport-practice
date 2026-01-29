@@ -29,6 +29,24 @@ export const documentTypeEnum = pgEnum('document_type', ['insurance', 'clinical_
 export const kioskActionEnum = pgEnum('kiosk_action', ['sign_in', 'sign_out']);
 export const notificationStatusEnum = pgEnum('notification_status', ['pending', 'sent', 'failed']);
 export const userStatusEnum = pgEnum('user_status', ['pending', 'active', 'suspended', 'rejected']);
+export const subscriptionTypeEnum = pgEnum('subscription_type', ['monthly', 'ad_hoc']);
+export const creditSourceEnum = pgEnum('credit_source', [
+  'monthly_subscription',
+  'ad_hoc_subscription',
+  'pay_difference',
+  'manual',
+]);
+export const paymentStatusEnum = pgEnum('payment_status', [
+  'pending',
+  'succeeded',
+  'failed',
+  'canceled',
+]);
+export const paymentTypeEnum = pgEnum('payment_type', [
+  'subscription',
+  'ad_hoc_subscription',
+  'pay_difference',
+]);
 
 // Users table
 export const users = pgTable(
@@ -66,6 +84,13 @@ export const memberships = pgTable('memberships', {
   type: membershipTypeEnum('type').notNull(),
   marketingAddon: boolean('marketing_addon').notNull().default(false),
   permanentSchedule: jsonb('permanent_schedule'),
+  subscriptionType: subscriptionTypeEnum('subscription_type'),
+  stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+  subscriptionStartDate: date('subscription_start_date'),
+  subscriptionEndDate: date('subscription_end_date'),
+  terminationRequestedAt: timestamp('termination_requested_at'),
+  suspensionDate: date('suspension_date'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -124,7 +149,9 @@ export const creditLedgers = pgTable('credit_ledgers', {
   monthYear: date('month_year').notNull(),
   monthlyCredit: decimal('monthly_credit', { precision: 10, scale: 2 }).notNull().default('105.00'),
   usedCredit: decimal('used_credit', { precision: 10, scale: 2 }).notNull().default('0.00'),
-  remainingCredit: decimal('remaining_credit', { precision: 10, scale: 2 }).notNull().default('105.00'),
+  remainingCredit: decimal('remaining_credit', { precision: 10, scale: 2 })
+    .notNull()
+    .default('105.00'),
   isReset: boolean('is_reset').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -143,6 +170,54 @@ export const freeBookingVouchers = pgTable('free_booking_vouchers', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+// Credit transactions table (transaction-based credits with expiry)
+export const creditTransactions = pgTable(
+  'credit_transactions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+    usedAmount: decimal('used_amount', { precision: 10, scale: 2 }).notNull().default('0.00'),
+    remainingAmount: decimal('remaining_amount', { precision: 10, scale: 2 }).notNull(),
+    grantDate: date('grant_date').notNull(),
+    expiryDate: date('expiry_date').notNull(),
+    sourceType: creditSourceEnum('source_type').notNull(),
+    sourceId: uuid('source_id'),
+    description: text('description'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('credit_transactions_user_id_idx').on(table.userId),
+    expiryDateIdx: index('credit_transactions_expiry_date_idx').on(table.expiryDate),
+  })
+);
+
+// Stripe payments table (tracks payment intents and webhook events)
+export const stripePayments = pgTable(
+  'stripe_payments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).notNull().unique(),
+    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+    amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull().default('gbp'),
+    status: paymentStatusEnum('status').notNull().default('pending'),
+    paymentType: paymentTypeEnum('payment_type').notNull(),
+    metadata: jsonb('metadata'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('stripe_payments_user_id_idx').on(table.userId),
+  })
+);
 
 // Documents table
 export const documents = pgTable('documents', {
@@ -249,6 +324,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     fields: [users.id],
     references: [clinicalExecutors.userId],
   }),
+  creditTransactions: many(creditTransactions),
+  stripePayments: many(stripePayments),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -272,3 +349,16 @@ export const clinicalExecutorsRelations = relations(clinicalExecutors, ({ one })
   }),
 }));
 
+export const creditTransactionsRelations = relations(creditTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [creditTransactions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const stripePaymentsRelations = relations(stripePayments, ({ one }) => ({
+  user: one(users, {
+    fields: [stripePayments.userId],
+    references: [users.id],
+  }),
+}));

@@ -52,23 +52,24 @@ async function runInitialDataMigration() {
 
     console.log('✅ Locations created');
 
-    // Create rooms for Pimlico
+    // Create rooms for Pimlico (named A, B, C, D)
     console.log('🚪 Creating rooms for Pimlico...');
-    for (let i = 1; i <= 4; i++) {
+    const pimlicoRoomNames = ['A', 'B', 'C', 'D'];
+    for (let i = 0; i < pimlicoRoomNames.length; i++) {
       await db.insert(rooms).values({
         locationId: pimlico.id,
-        name: `Pimlico Room ${i}`,
-        roomNumber: i.toString(),
+        name: pimlicoRoomNames[i],
+        roomNumber: (i + 1).toString(),
         active: true,
       });
     }
 
-    // Create rooms for Kensington
+    // Create rooms for Kensington (named 1, 2, 3, 4, 5, 6)
     console.log('🚪 Creating rooms for Kensington...');
     for (let i = 1; i <= 6; i++) {
       await db.insert(rooms).values({
         locationId: kensington.id,
-        name: `Kensington Room ${i}`,
+        name: i.toString(),
         roomNumber: i.toString(),
         active: true,
       });
