@@ -37,11 +37,24 @@ R2_BUCKET_NAME=your-bucket-name
 
 # Cron Secret (for scheduled jobs)
 CRON_SECRET=your-cron-secret-token-change-in-production
+
+# Stripe (for payments and subscriptions)
+STRIPE_SECRET_KEY=sk_test_your-stripe-secret-key
+STRIPE_WEBHOOK_SECRET=whsec_your-webhook-signing-secret
 ```
+
+## Stripe Setup
+
+For payments and subscriptions:
+
+1. Create an account at [Stripe](https://stripe.com) and get your API keys from the Dashboard (Developers → API keys).
+2. Use the **Secret key** (e.g. `sk_test_...`) as `STRIPE_SECRET_KEY`.
+3. For webhooks (PR 6+), create a webhook endpoint in the Dashboard and set `STRIPE_WEBHOOK_SECRET` to the signing secret (`whsec_...`).
 
 ## Gmail App Password Setup
 
 To use Gmail SMTP, you need to:
+
 1. Enable 2-factor authentication on your Google account
 2. Generate an App Password: https://myaccount.google.com/apppasswords
 3. Use the generated app password as `EMAIL_PASSWORD`
@@ -49,8 +62,8 @@ To use Gmail SMTP, you need to:
 ## Database Setup
 
 For development, you can use:
+
 - Supabase (https://supabase.com)
 - Neon (https://neon.tech)
 
 Copy the connection string to `DATABASE_URL`.
-
