@@ -78,6 +78,44 @@ export async function grantCredits(
 }
 
 /**
+ * Grant credits within an existing transaction. Caller must run inside db.transaction.
+ */
+export async function grantCreditsWithinTransaction(
+  tx: CreditTransactionClient,
+  userId: string,
+  amount: number,
+  expiryDate: string,
+  sourceType: CreditSourceType,
+  sourceId?: string,
+  description?: string
+): Promise<string> {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new RangeError('Credit amount must be a finite number greater than 0');
+  }
+  const expiry = new Date(expiryDate);
+  if (Number.isNaN(expiry.getTime())) {
+    throw new TypeError('Invalid expiryDate');
+  }
+  const amountStr = amount.toFixed(2);
+  const [row] = await tx
+    .insert(creditTransactions)
+    .values({
+      userId,
+      amount: amountStr,
+      usedAmount: '0.00',
+      remainingAmount: amountStr,
+      grantDate: todayUtcString(),
+      expiryDate,
+      sourceType,
+      sourceId: sourceId ?? null,
+      description: description ?? null,
+    })
+    .returning({ id: creditTransactions.id });
+  if (!row) throw new Error('Failed to create credit transaction');
+  return row.id;
+}
+
+/**
  * Get all non-expired credit transactions for a user with remaining balance.
  * Sorted by grantDate ascending (FIFO).
  */
@@ -109,57 +147,74 @@ export async function getAvailableCredits(
   }));
 }
 
+/** Transaction client type for useCreditsWithinTransaction (same as db.transaction callback param). */
+export type CreditTransactionClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Use credits within an existing transaction (FIFO). Caller must run inside db.transaction.
+ * Throws if insufficient credits.
+ */
+export async function useCreditsWithinTransaction(
+  tx: CreditTransactionClient,
+  userId: string,
+  amount: number
+): Promise<UseCreditsResult> {
+  if (amount <= 0) return { used: [], totalUsed: 0 };
+
+  const rows = await tx
+    .select()
+    .from(creditTransactions)
+    .where(
+      and(
+        eq(creditTransactions.userId, userId),
+        gte(creditTransactions.expiryDate, todayUtcString()),
+        sql`${creditTransactions.remainingAmount} > 0`
+      )
+    )
+    .orderBy(asc(creditTransactions.grantDate))
+    .for('update');
+
+  const totalAvailableCents = rows.reduce(
+    (s, r) => s + Math.round(parseFloat(r.remainingAmount.toString()) * 100),
+    0
+  );
+  const totalAvailable = totalAvailableCents / 100;
+  let remainingToDeduct = amount;
+  const used: Array<{ transactionId: string; amount: number }> = [];
+  for (const row of rows) {
+    if (remainingToDeduct <= 0) break;
+    const rem = parseFloat(row.remainingAmount.toString());
+    const deduct = Math.min(rem, remainingToDeduct);
+    const newRemaining = rem - deduct;
+    const newUsed = parseFloat(row.usedAmount.toString()) + deduct;
+    await tx
+      .update(creditTransactions)
+      .set({
+        remainingAmount: newRemaining.toFixed(2),
+        usedAmount: newUsed.toFixed(2),
+        updatedAt: new Date(),
+      })
+      .where(eq(creditTransactions.id, row.id));
+    used.push({ transactionId: row.id, amount: deduct });
+    remainingToDeduct -= deduct;
+  }
+
+  const totalUsed = used.reduce((s, u) => s + u.amount, 0);
+  if (remainingToDeduct > 0) {
+    throw new Error(
+      `Insufficient credits: requested £${amount.toFixed(2)}, available £${totalAvailable.toFixed(2)}`
+    );
+  }
+  return { used, totalUsed };
+}
+
 /**
  * Use credits (FIFO, oldest first). Deducts from transactions until amount is covered.
  * Throws if insufficient credits. Runs in a transaction.
  */
 export async function useCredits(userId: string, amount: number): Promise<UseCreditsResult> {
   if (amount <= 0) return { used: [], totalUsed: 0 };
-
-  const result = await db.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(creditTransactions)
-      .where(
-        and(
-          eq(creditTransactions.userId, userId),
-          gte(creditTransactions.expiryDate, todayUtcString()),
-          sql`${creditTransactions.remainingAmount} > 0`
-        )
-      )
-      .orderBy(asc(creditTransactions.grantDate))
-      .for('update');
-
-    let remainingToDeduct = amount;
-    const used: Array<{ transactionId: string; amount: number }> = [];
-    for (const row of rows) {
-      if (remainingToDeduct <= 0) break;
-      const rem = parseFloat(row.remainingAmount.toString());
-      const deduct = Math.min(rem, remainingToDeduct);
-      const newRemaining = rem - deduct;
-      const newUsed = parseFloat(row.usedAmount.toString()) + deduct;
-      await tx
-        .update(creditTransactions)
-        .set({
-          remainingAmount: newRemaining.toFixed(2),
-          usedAmount: newUsed.toFixed(2),
-          updatedAt: new Date(),
-        })
-        .where(eq(creditTransactions.id, row.id));
-      used.push({ transactionId: row.id, amount: deduct });
-      remainingToDeduct -= deduct;
-    }
-
-    const totalUsed = used.reduce((s, u) => s + u.amount, 0);
-    if (remainingToDeduct > 0) {
-      throw new Error(
-        `Insufficient credits: requested £${amount.toFixed(2)}, available £${totalUsed.toFixed(2)}`
-      );
-    }
-    return { used, totalUsed };
-  });
-
-  return { used: result.used, totalUsed: result.totalUsed };
+  return db.transaction((tx) => useCreditsWithinTransaction(tx, userId, amount));
 }
 
 /**
