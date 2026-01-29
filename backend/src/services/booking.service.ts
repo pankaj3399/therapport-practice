@@ -5,10 +5,12 @@ import { sql } from 'drizzle-orm';
 import { todayUtcString, formatTimeForEmail } from '../utils/date.util';
 import * as PricingService from './pricing.service';
 import * as CreditTransactionService from './credit-transaction.service';
+import * as StripePaymentService from './stripe-payment.service';
 import { VoucherService } from './voucher.service';
 import { BookingValidationError, BookingNotFoundError } from '../errors/booking.errors';
 import { logger } from '../utils/logger.util';
 import { emailService } from './email.service';
+import { isStripeConfigured } from '../config/stripe';
 
 type LocationName = PricingService.LocationName;
 
@@ -261,8 +263,13 @@ export async function validateBookingRequest(
   return { valid: true };
 }
 
+export type CreateBookingResult =
+  | { id: string }
+  | { paymentRequired: true; clientSecret: string; paymentIntentId: string; amountPence: number };
+
 /**
- * Create a booking using credits and/or vouchers. Rejects when insufficient credits (no Stripe in PR3).
+ * Create a booking using credits and/or vouchers. When insufficient credits and Stripe is configured,
+ * returns paymentRequired with clientSecret for pay-the-difference (PR 9).
  */
 export async function createBooking(
   userId: string,
@@ -271,7 +278,7 @@ export async function createBooking(
   startTime: string,
   endTime: string,
   bookingType: 'permanent_recurring' | 'ad_hoc' | 'free' | 'internal' = 'ad_hoc'
-): Promise<{ id: string }> {
+): Promise<CreateBookingResult> {
   const validation = await validateBookingRequest(userId, roomId, date, startTime, endTime);
   if (!validation.valid) throw new BookingValidationError(validation.error!);
 
@@ -291,6 +298,69 @@ export async function createBooking(
     throw new BookingValidationError('Invalid time string');
   }
   const todayStr = todayUtcString();
+
+  const [membership] = await db
+    .select()
+    .from(memberships)
+    .where(eq(memberships.userId, userId))
+    .limit(1);
+  if (!membership) throw new BookingValidationError('No membership');
+
+  const voucherRows = await db
+    .select()
+    .from(freeBookingVouchers)
+    .where(
+      and(eq(freeBookingVouchers.userId, userId), gte(freeBookingVouchers.expiryDate, todayStr))
+    )
+    .orderBy(asc(freeBookingVouchers.expiryDate));
+  const remainingVoucherHours = voucherRows.reduce((sum, v) => {
+    const used = parseFloat(v.hoursUsed.toString());
+    const allocated = parseFloat(v.hoursAllocated.toString());
+    return sum + Math.max(0, allocated - used);
+  }, 0);
+  const voucherHoursToUse = Math.min(remainingVoucherHours, durationHours);
+  const totalPriceCents = Math.round(totalPrice * 100);
+  const creditAmountCents =
+    voucherHoursToUse >= durationHours
+      ? 0
+      : Math.round((totalPriceCents * (durationHours - voucherHoursToUse)) / durationHours);
+  const creditAmountNeeded = creditAmountCents / 100;
+
+  const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId);
+  if (totalAvailable < creditAmountNeeded) {
+    const amountToPayGBP = creditAmountNeeded - totalAvailable;
+    const amountToPayPence = Math.round(amountToPayGBP * 100);
+    if (amountToPayPence <= 0) {
+      // Rounding made difference zero; proceed with booking using available credits
+    } else if (!isStripeConfigured()) {
+      throw new BookingValidationError(
+        `Insufficient credits. You need £${creditAmountNeeded.toFixed(2)} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
+      );
+    } else {
+      const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
+        amount: amountToPayPence,
+        currency: 'gbp',
+        customerId: membership.stripeCustomerId ?? undefined,
+        metadata: {
+          type: 'pay_the_difference',
+          userId,
+          roomId,
+          date,
+          startTime,
+          endTime,
+          bookingType,
+          expectedAmountPence: String(amountToPayPence),
+        },
+        description: 'Pay the difference for room booking',
+      });
+      return {
+        paymentRequired: true,
+        clientSecret,
+        paymentIntentId,
+        amountPence: amountToPayPence,
+      };
+    }
+  }
 
   const result = await db.transaction(async (tx) => {
     const [membership] = await tx

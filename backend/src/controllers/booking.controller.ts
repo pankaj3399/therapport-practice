@@ -152,7 +152,21 @@ export class BookingController {
         endTime,
         type
       );
-      res.status(201).json({ success: true, booking: { id: result.id } });
+      if ('paymentRequired' in result && result.paymentRequired) {
+        res.status(200).json({
+          success: true,
+          paymentRequired: true,
+          clientSecret: result.clientSecret,
+          paymentIntentId: result.paymentIntentId,
+          amountPence: result.amountPence,
+        });
+        return;
+      }
+      if ('id' in result) {
+        res.status(201).json({ success: true, booking: { id: result.id } });
+        return;
+      }
+      res.status(500).json({ success: false, error: 'Unexpected booking result' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create booking';
       const status = error instanceof BookingServiceError ? error.statusCode : DEFAULT_STATUS;

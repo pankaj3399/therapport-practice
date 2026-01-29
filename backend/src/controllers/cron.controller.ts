@@ -2,10 +2,10 @@ import { Request, Response } from 'express';
 import { ReminderService } from '../services/reminder.service';
 import { emailService } from '../services/email.service';
 import { db } from '../config/database';
-import { users, bookings, rooms, locations } from '../db/schema';
+import { users, bookings, rooms, locations, memberships } from '../db/schema';
 import { eq, inArray, and } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
-import { addDaysUtcString, formatTimeForEmail } from '../utils/date.util';
+import { addDaysUtcString, formatTimeForEmail, todayUtcString } from '../utils/date.util';
 import type { DocumentReminderMetadata } from '../services/reminder.service';
 
 export class CronController {
@@ -275,6 +275,61 @@ export class CronController {
   }
 
   /**
+   * Process suspension: find memberships where suspensionDate = today, set user status to suspended, send suspension email.
+   * DB update determines suspension success (suspended count); email failures are tracked separately (failedEmail).
+   */
+  async processSuspensionInternal(): Promise<{
+    suspended: number;
+    failedEmail: number;
+    total: number;
+  }> {
+    const todayStr = todayUtcString();
+    logger.info('Starting suspension processing', { todayStr });
+    const rows = await db
+      .select({
+        userId: memberships.userId,
+        suspensionDate: memberships.suspensionDate,
+        userEmail: users.email,
+        userFirstName: users.firstName,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(memberships.userId, users.id))
+      .where(and(eq(memberships.suspensionDate, todayStr), eq(users.status, 'active')));
+
+    if (rows.length === 0) {
+      return { suspended: 0, failedEmail: 0, total: 0 };
+    }
+
+    let suspended = 0;
+    let failedEmail = 0;
+    for (const row of rows) {
+      try {
+        await db
+          .update(users)
+          .set({ status: 'suspended', updatedAt: new Date() })
+          .where(eq(users.id, row.userId));
+        suspended++;
+      } catch (error) {
+        logger.error('Failed to suspend user', error, { userId: row.userId });
+        continue;
+      }
+      const suspensionDateStr =
+        row.suspensionDate != null ? String(row.suspensionDate).slice(0, 10) : todayStr;
+      try {
+        await emailService.sendSuspensionNotice({
+          firstName: row.userFirstName,
+          email: row.userEmail,
+          suspensionDate: suspensionDateStr,
+        });
+      } catch (error) {
+        logger.error('Failed to send suspension notice email', error, { userId: row.userId });
+        failedEmail++;
+      }
+    }
+    return { suspended, failedEmail, total: rows.length };
+  }
+
+  /**
    * Process pending reminders
    * This endpoint is called by:
    * - Vercel Cron Jobs (Authorization: Bearer ${CRON_SECRET})
@@ -314,26 +369,30 @@ export class CronController {
 
       logger.info('Cron request authenticated successfully');
 
-      // Process document reminders and 48h booking reminders
+      // Process document reminders, 48h booking reminders, and suspension
       const documentResult = await this.processRemindersInternal();
       const bookingResult = await this.processBookingRemindersInternal();
+      const suspensionResult = await this.processSuspensionInternal();
 
-      const totalProcessed = documentResult.processed + bookingResult.processed;
-      const totalFailed = documentResult.failed + bookingResult.failed;
-      const totalItems = documentResult.total + bookingResult.total;
+      const totalProcessed =
+        documentResult.processed + bookingResult.processed + suspensionResult.suspended;
+      const totalFailed =
+        documentResult.failed + bookingResult.failed + suspensionResult.failedEmail;
+      const totalItems = documentResult.total + bookingResult.total + suspensionResult.total;
 
       if (totalItems === 0) {
-        logger.info('Cron job completed: No pending reminders to process', {
+        logger.info('Cron job completed: No pending reminders or suspensions to process', {
           processed: 0,
           failed: 0,
           total: 0,
         });
         return res.status(200).json({
           success: true,
-          message: 'No pending reminders to process',
+          message: 'No pending reminders or suspensions to process',
           processed: 0,
           documentReminders: documentResult,
           bookingReminders: bookingResult,
+          suspension: suspensionResult,
         });
       }
 
@@ -343,16 +402,18 @@ export class CronController {
         total: totalItems,
         documentReminders: documentResult,
         bookingReminders: bookingResult,
+        suspension: suspensionResult,
       });
 
       res.status(200).json({
         success: true,
-        message: `Processed ${totalProcessed} reminders, ${totalFailed} failed`,
+        message: `Processed ${totalProcessed} items, ${totalFailed} failed`,
         processed: totalProcessed,
         failed: totalFailed,
         total: totalItems,
         documentReminders: documentResult,
         bookingReminders: bookingResult,
+        suspension: suspensionResult,
       });
     } catch (error) {
       logger.error('Failed to process reminders', error, {

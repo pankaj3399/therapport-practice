@@ -3,6 +3,8 @@ import Stripe from 'stripe';
 import { getStripe, STRIPE_WEBHOOK_SECRET } from '../config/stripe';
 import { logger } from '../utils/logger.util';
 import * as SubscriptionService from '../services/subscription.service';
+import * as BookingService from '../services/booking.service';
+import * as CreditTransactionService from '../services/credit-transaction.service';
 
 /** In-memory map of processed event IDs with timestamps for TTL cleanup (PR 6 minimal). Replace with DB in production. */
 const processedEventIds = new Map<string, number>();
@@ -79,6 +81,94 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         if (type === 'ad_hoc_subscription' && userId && purchaseDate) {
           await SubscriptionService.processAdHocPaymentSuccess(userId, purchaseDate);
           logger.info('Ad-hoc subscription payment processed', { eventId: event.id, userId });
+        } else if (type === 'pay_the_difference' && userId && paymentIntent.metadata?.roomId) {
+          const roomId = paymentIntent.metadata.roomId;
+          const date = paymentIntent.metadata.date;
+          const startTime = paymentIntent.metadata.startTime;
+          const endTime = paymentIntent.metadata.endTime;
+          const bookingType =
+            (paymentIntent.metadata.bookingType as
+              | 'permanent_recurring'
+              | 'ad_hoc'
+              | 'free'
+              | 'internal') ?? 'ad_hoc';
+          const amountReceived = paymentIntent.amount_received;
+          if (!date || !startTime || !endTime || amountReceived == null) {
+            logger.warn('Pay-the-difference metadata incomplete', {
+              eventId: event.id,
+              userId,
+              missing: {
+                date: !date,
+                startTime: !startTime,
+                endTime: !endTime,
+                amount_received: amountReceived == null,
+              },
+            });
+          } else {
+            const expectedPence = paymentIntent.metadata.expectedAmountPence;
+            if (expectedPence != null) {
+              const expected = parseInt(String(expectedPence), 10);
+              if (!Number.isNaN(expected) && expected !== amountReceived) {
+                logger.warn('Pay-the-difference amount mismatch', {
+                  eventId: event.id,
+                  userId,
+                  expectedAmountPence: expected,
+                  amountReceived,
+                });
+              }
+            }
+            const available = await BookingService.checkAvailability(
+              roomId,
+              date,
+              startTime,
+              endTime
+            );
+            if (!available) {
+              logger.warn('Pay-the-difference slot no longer available', {
+                eventId: event.id,
+                userId,
+                roomId,
+                date,
+              });
+              break;
+            }
+            const amountGBP = amountReceived / 100;
+            const d = new Date();
+            const y = d.getUTCFullYear();
+            const m = d.getUTCMonth();
+            const lastDay = new Date(Date.UTC(y, m + 1, 0));
+            const expiryDate = lastDay.toISOString().split('T')[0];
+            await CreditTransactionService.grantCredits(
+              userId,
+              amountGBP,
+              expiryDate,
+              'pay_difference',
+              undefined,
+              'Pay the difference for room booking'
+            );
+            const result = await BookingService.createBooking(
+              userId,
+              roomId,
+              date,
+              startTime,
+              endTime,
+              bookingType
+            );
+            if ('paymentRequired' in result && result.paymentRequired) {
+              logger.error('Pay-the-difference createBooking returned paymentRequired', {
+                eventId: event.id,
+                userId,
+                roomId,
+                date,
+              });
+            } else if ('id' in result) {
+              logger.info('Pay-the-difference booking created', {
+                eventId: event.id,
+                userId,
+                bookingId: result.id,
+              });
+            }
+          }
         } else {
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
         }

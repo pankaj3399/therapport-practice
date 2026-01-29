@@ -117,9 +117,11 @@ if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
         try {
           const docResult = await cronController.processRemindersInternal();
           const bookingResult = await cronController.processBookingRemindersInternal();
+          const suspensionResult = await cronController.processSuspensionInternal();
           console.log('✅ Cron job executed successfully:', {
             documentReminders: docResult,
             bookingReminders: bookingResult,
+            suspension: suspensionResult,
           });
         } catch (error) {
           console.error('❌ Cron job error:', error);
@@ -127,7 +129,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
       });
 
       console.log(
-        '✅ node-cron scheduled for reminder processing (document + 48h booking, daily at midnight)'
+        '✅ node-cron scheduled for reminder + suspension (document + 48h booking + suspension, daily at midnight)'
       );
     } catch (error) {
       console.error('❌ Failed to setup node-cron:', error);

@@ -118,6 +118,18 @@ export interface BookingCancellationEmailData {
   refundAmount: string;
 }
 
+export interface SuspensionNoticeEmailData {
+  firstName: string;
+  email: string;
+  suspensionDate: string;
+}
+
+export interface SubscriptionTerminatedEmailData {
+  firstName: string;
+  email: string;
+  suspensionDate: string;
+}
+
 export class EmailService {
   async sendWelcomeEmail(data: WelcomeEmailData): Promise<void> {
     // Escape all user-controlled values
@@ -554,6 +566,71 @@ export class EmailService {
       from: EMAIL_FROM,
       to: data.email,
       subject: 'Booking Cancelled - Therapport',
+      html,
+    });
+  }
+
+  async sendSuspensionNotice(data: SuspensionNoticeEmailData): Promise<void> {
+    const suspensionDateFormatted = formatDateSafely(data.suspensionDate);
+    const escapedFirstName = escapeHtml(data.firstName);
+    const escapedSuspensionDate = escapeHtml(suspensionDateFormatted);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Account Suspension Notice</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2c3e50;">Account Suspension Notice</h1>
+            <p>Hello ${escapedFirstName},</p>
+            <p>Your ad-hoc subscription termination has taken effect. Your account has been suspended as of ${escapedSuspensionDate}.</p>
+            <p>You will no longer be able to make new bookings. If you wish to use the service again, please contact us to reactivate your membership.</p>
+            <p>If you have any questions, please contact us at info@therapport.co.uk</p>
+            <p>Best regards,<br>The Therapport Team</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: data.email,
+      subject: 'Account Suspension Notice - Therapport',
+      html,
+    });
+  }
+
+  async sendSubscriptionTerminated(data: SubscriptionTerminatedEmailData): Promise<void> {
+    const suspensionDateFormatted = formatDateSafely(data.suspensionDate);
+    const escapedFirstName = escapeHtml(data.firstName);
+    const escapedSuspensionDate = escapeHtml(suspensionDateFormatted);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Ad-hoc Subscription Terminated</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2c3e50;">Ad-hoc Subscription Terminated</h1>
+            <p>Hello ${escapedFirstName},</p>
+            <p>Your ad-hoc subscription has been terminated as requested. You can continue to use the service until ${escapedSuspensionDate}. After that date your account will be suspended.</p>
+            <p>If you have any questions, please contact us at info@therapport.co.uk</p>
+            <p>Best regards,<br>The Therapport Team</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: data.email,
+      subject: 'Ad-hoc Subscription Terminated - Therapport',
       html,
     });
   }
