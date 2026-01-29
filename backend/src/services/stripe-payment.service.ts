@@ -73,6 +73,21 @@ export interface CreateCustomerResult {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
+ * Find an existing Stripe customer by email (exact match). Returns the first match or null.
+ * Use as fallback to avoid creating duplicate customers.
+ */
+export async function findCustomerByEmail(email: string): Promise<string | null> {
+  const trimmed = typeof email === 'string' ? email.trim() : '';
+  if (!trimmed || !EMAIL_REGEX.test(trimmed)) {
+    return null;
+  }
+  const stripe = getStripe();
+  const list = await stripe.customers.list({ email: trimmed, limit: 1 });
+  const customer = list.data[0];
+  return customer?.id ?? null;
+}
+
+/**
  * Create a Stripe customer. Used for subscriptions and saving payment methods.
  */
 export async function createCustomer(params: CreateCustomerParams): Promise<CreateCustomerResult> {

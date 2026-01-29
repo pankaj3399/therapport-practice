@@ -41,6 +41,7 @@ CRON_SECRET=your-cron-secret-token-change-in-production
 # Stripe (for payments and subscriptions)
 STRIPE_SECRET_KEY=sk_test_your-stripe-secret-key
 STRIPE_WEBHOOK_SECRET=whsec_your-webhook-signing-secret
+STRIPE_MONTHLY_PRICE_ID=price_xxx
 ```
 
 ## Stripe Setup
@@ -50,6 +51,7 @@ For payments and subscriptions:
 1. Create an account at [Stripe](https://stripe.com) and get your API keys from the Dashboard (Developers → API keys).
 2. Use the **Secret key** (e.g. `sk_test_...`) as `STRIPE_SECRET_KEY`.
 3. For webhooks (PR 6+), create a webhook endpoint in the Dashboard and set `STRIPE_WEBHOOK_SECRET` to the signing secret (`whsec_...`).
+4. To obtain **STRIPE_MONTHLY_PRICE_ID**: In the Stripe Dashboard go to **Products** → **Add product**, create a product (e.g. "Monthly membership"), then under **Pricing** add a **Recurring** price (e.g. £105/month). Copy the resulting Price ID (it starts with `price_...`) and set it in your `.env` as `STRIPE_MONTHLY_PRICE_ID`.
 
 ## Gmail App Password Setup
 
