@@ -2,12 +2,13 @@ import { db } from '../config/database';
 import { bookings, rooms, locations, memberships, users, freeBookingVouchers } from '../db/schema';
 import { eq, and, gte, asc } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { todayUtcString } from '../utils/date.util';
+import { todayUtcString, formatTimeForEmail } from '../utils/date.util';
 import * as PricingService from './pricing.service';
 import * as CreditTransactionService from './credit-transaction.service';
 import { VoucherService } from './voucher.service';
 import { BookingValidationError, BookingNotFoundError } from '../errors/booking.errors';
 import { logger } from '../utils/logger.util';
+import { emailService } from './email.service';
 
 type LocationName = PricingService.LocationName;
 
@@ -359,10 +360,38 @@ export async function createBooking(
       await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditAmountNeeded);
     }
 
-    return { id: created.id };
+    return { id: created.id, creditUsed: creditAmountNeeded };
   });
 
-  return result;
+  // Send confirmation email (fire-and-forget; do not fail the request if email fails)
+  const [userRow] = await db
+    .select({ email: users.email, firstName: users.firstName })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (userRow) {
+    const creditUsed = result.creditUsed > 0 ? result.creditUsed.toFixed(2) : undefined;
+    emailService
+      .sendBookingConfirmation({
+        firstName: userRow.firstName,
+        email: userRow.email,
+        roomName: room.name,
+        locationName,
+        bookingDate: date,
+        startTime: startTimeDb,
+        endTime: endTimeDb,
+        totalPrice: totalPrice.toFixed(2),
+        creditUsed,
+      })
+      .catch((err) =>
+        logger.error('Failed to send booking confirmation email', err, {
+          userId,
+          bookingId: result.id,
+        })
+      );
+  }
+
+  return { id: result.id };
 }
 
 /**
@@ -370,13 +399,35 @@ export async function createBooking(
  * Booking update and credit grant run in a single transaction so both succeed or both roll back.
  */
 export async function cancelBooking(bookingId: string, userId: string): Promise<void> {
+  let emailData: {
+    firstName: string;
+    email: string;
+    roomName: string;
+    locationName: string;
+    bookingDate: string;
+    startTime: string;
+    endTime: string;
+    refundAmount: string;
+  } | null = null;
+
   await db.transaction(async (tx) => {
-    const [booking] = await tx
-      .select()
+    const [row] = await tx
+      .select({
+        booking: bookings,
+        userEmail: users.email,
+        userFirstName: users.firstName,
+        roomName: rooms.name,
+        locationName: locations.name,
+      })
       .from(bookings)
+      .innerJoin(users, eq(bookings.userId, users.id))
+      .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+      .innerJoin(locations, eq(rooms.locationId, locations.id))
       .where(and(eq(bookings.id, bookingId), eq(bookings.userId, userId)))
       .limit(1);
-    if (!booking) throw new BookingNotFoundError('Booking not found');
+
+    if (!row) throw new BookingNotFoundError('Booking not found');
+    const booking = row.booking;
     if (booking.status === 'cancelled')
       throw new BookingValidationError('Booking is already cancelled');
 
@@ -426,7 +477,27 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
         'Refund for booking cancellation'
       );
     }
+
+    emailData = {
+      firstName: row.userFirstName,
+      email: row.userEmail,
+      roomName: String(row.roomName),
+      locationName: String(row.locationName),
+      bookingDate: String(booking.bookingDate),
+      startTime: formatTimeForEmail(booking.startTime as string | Date),
+      endTime: formatTimeForEmail(booking.endTime as string | Date),
+      refundAmount: totalPrice.toFixed(2),
+    };
   });
+
+  if (emailData) {
+    emailService.sendBookingCancellation(emailData).catch((err) =>
+      logger.error('Failed to send booking cancellation email', err, {
+        userId,
+        bookingId,
+      })
+    );
+  }
 }
 
 /**

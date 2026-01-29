@@ -58,3 +58,25 @@ export function todayUtcString(): string {
   d.setUTCHours(0, 0, 0, 0);
   return d.toISOString().split('T')[0];
 }
+
+/**
+ * Get a date N days from today in UTC as YYYY-MM-DD.
+ */
+export function addDaysUtcString(days: number): string {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+/**
+ * Format time from DB (string or Date) to HH:mm for display.
+ */
+export function formatTimeForEmail(t: string | Date): string {
+  if (typeof t === 'string') {
+    const parts = t.trim().split(':');
+    return `${parts[0] ?? '00'}:${parts[1] ?? '00'}`;
+  }
+  const d = t as Date;
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}

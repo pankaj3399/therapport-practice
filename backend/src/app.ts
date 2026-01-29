@@ -108,21 +108,23 @@ app.listen(PORT, () => {
 if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   (async () => {
     try {
-      // Schedule reminder processing every day at midnight
+      // Schedule reminder processing every day at midnight (document reminders + 48h booking reminders)
       cron.schedule('0 0 * * *', async () => {
         try {
-          const result = await cronController.processRemindersInternal();
+          const docResult = await cronController.processRemindersInternal();
+          const bookingResult = await cronController.processBookingRemindersInternal();
           console.log('✅ Cron job executed successfully:', {
-            processed: result.processed,
-            failed: result.failed,
-            total: result.total,
+            documentReminders: docResult,
+            bookingReminders: bookingResult,
           });
         } catch (error) {
           console.error('❌ Cron job error:', error);
         }
       });
 
-      console.log('✅ node-cron scheduled for reminder processing (daily at midnight)');
+      console.log(
+        '✅ node-cron scheduled for reminder processing (document + 48h booking, daily at midnight)'
+      );
     } catch (error) {
       console.error('❌ Failed to setup node-cron:', error);
     }

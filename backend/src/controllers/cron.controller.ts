@@ -2,9 +2,10 @@ import { Request, Response } from 'express';
 import { ReminderService } from '../services/reminder.service';
 import { emailService } from '../services/email.service';
 import { db } from '../config/database';
-import { users } from '../db/schema';
-import { eq, inArray } from 'drizzle-orm';
+import { users, bookings, rooms, locations } from '../db/schema';
+import { eq, inArray, and } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
+import { addDaysUtcString, formatTimeForEmail } from '../utils/date.util';
 import type { DocumentReminderMetadata } from '../services/reminder.service';
 
 export class CronController {
@@ -197,6 +198,83 @@ export class CronController {
   }
 
   /**
+   * Process 48h booking reminders: find confirmed bookings in 2 days and send reminder emails.
+   * Returns processed, failed, and total counts.
+   */
+  async processBookingRemindersInternal(): Promise<{
+    processed: number;
+    failed: number;
+    total: number;
+  }> {
+    logger.info('Starting 48h booking reminder processing');
+
+    const dateIn2Days = addDaysUtcString(2);
+
+    const rows = await db
+      .select({
+        bookingId: bookings.id,
+        userId: bookings.userId,
+        bookingDate: bookings.bookingDate,
+        startTime: bookings.startTime,
+        endTime: bookings.endTime,
+        userEmail: users.email,
+        userFirstName: users.firstName,
+        roomName: rooms.name,
+        locationName: locations.name,
+      })
+      .from(bookings)
+      .innerJoin(users, eq(bookings.userId, users.id))
+      .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+      .innerJoin(locations, eq(rooms.locationId, locations.id))
+      .where(and(eq(bookings.status, 'confirmed'), eq(bookings.bookingDate, dateIn2Days)));
+
+    if (rows.length === 0) {
+      logger.info('No bookings in 48h window to remind');
+      return { processed: 0, failed: 0, total: 0 };
+    }
+
+    logger.info(`Found ${rows.length} booking(s) in 48h window to remind`);
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      try {
+        const bookingDateStr = String(row.bookingDate);
+        await emailService.sendBookingReminder({
+          firstName: row.userFirstName,
+          email: row.userEmail,
+          roomName: String(row.roomName),
+          locationName: String(row.locationName),
+          bookingDate: bookingDateStr,
+          startTime: formatTimeForEmail(row.startTime as string | Date),
+          endTime: formatTimeForEmail(row.endTime as string | Date),
+        });
+        processed++;
+        logger.info('Booking reminder sent', {
+          bookingId: row.bookingId,
+          userId: row.userId,
+          bookingDate: bookingDateStr,
+        });
+      } catch (error) {
+        logger.error('Failed to send booking reminder', error, {
+          bookingId: row.bookingId,
+          userId: row.userId,
+        });
+        failed++;
+      }
+    }
+
+    logger.info('48h booking reminder processing completed', {
+      processed,
+      failed,
+      total: rows.length,
+    });
+
+    return { processed, failed, total: rows.length };
+  }
+
+  /**
    * Process pending reminders
    * This endpoint is called by:
    * - Vercel Cron Jobs (Authorization: Bearer ${CRON_SECRET})
@@ -218,12 +296,12 @@ export class CronController {
       // Extract and normalize Authorization header
       const authorizationHeaderRaw = req.headers['authorization'];
       const expectedSecret = process.env.CRON_SECRET;
-      
+
       // Normalize authorization header (can be string | string[] | undefined)
       const authorizationHeader = Array.isArray(authorizationHeaderRaw)
         ? authorizationHeaderRaw[0]
         : authorizationHeaderRaw;
-      
+
       // Check if authorization header matches Bearer ${CRON_SECRET}
       if (!expectedSecret || authorizationHeader !== `Bearer ${expectedSecret}`) {
         logger.warn('Unauthorized cron request attempt', {
@@ -236,10 +314,15 @@ export class CronController {
 
       logger.info('Cron request authenticated successfully');
 
-      // Process reminders using internal function
-      const result = await this.processRemindersInternal();
+      // Process document reminders and 48h booking reminders
+      const documentResult = await this.processRemindersInternal();
+      const bookingResult = await this.processBookingRemindersInternal();
 
-      if (result.total === 0) {
+      const totalProcessed = documentResult.processed + bookingResult.processed;
+      const totalFailed = documentResult.failed + bookingResult.failed;
+      const totalItems = documentResult.total + bookingResult.total;
+
+      if (totalItems === 0) {
         logger.info('Cron job completed: No pending reminders to process', {
           processed: 0,
           failed: 0,
@@ -249,21 +332,27 @@ export class CronController {
           success: true,
           message: 'No pending reminders to process',
           processed: 0,
+          documentReminders: documentResult,
+          bookingReminders: bookingResult,
         });
       }
 
       logger.info('Cron job completed successfully', {
-        processed: result.processed,
-        failed: result.failed,
-        total: result.total,
+        processed: totalProcessed,
+        failed: totalFailed,
+        total: totalItems,
+        documentReminders: documentResult,
+        bookingReminders: bookingResult,
       });
 
       res.status(200).json({
         success: true,
-        message: `Processed ${result.processed} reminders, ${result.failed} failed`,
-        processed: result.processed,
-        failed: result.failed,
-        total: result.total,
+        message: `Processed ${totalProcessed} reminders, ${totalFailed} failed`,
+        processed: totalProcessed,
+        failed: totalFailed,
+        total: totalItems,
+        documentReminders: documentResult,
+        bookingReminders: bookingResult,
       });
     } catch (error) {
       logger.error('Failed to process reminders', error, {

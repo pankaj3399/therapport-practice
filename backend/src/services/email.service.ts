@@ -85,6 +85,39 @@ export interface DocumentUploadNotificationData {
   expiryDate: string | null;
 }
 
+export interface BookingConfirmationEmailData {
+  firstName: string;
+  email: string;
+  roomName: string;
+  locationName: string;
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+  totalPrice: string;
+  creditUsed?: string;
+}
+
+export interface BookingReminderEmailData {
+  firstName: string;
+  email: string;
+  roomName: string;
+  locationName: string;
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface BookingCancellationEmailData {
+  firstName: string;
+  email: string;
+  roomName: string;
+  locationName: string;
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+  refundAmount: string;
+}
+
 export class EmailService {
   async sendWelcomeEmail(data: WelcomeEmailData): Promise<void> {
     // Escape all user-controlled values
@@ -344,12 +377,14 @@ export class EmailService {
     const escapedDocumentName = escapeHtml(data.documentName);
     const escapedDocumentTypeLabel = escapeHtml(documentTypeLabel);
     const escapedExpiryDateFormatted = escapeHtml(expiryDateFormatted);
-    const uploadDate = escapeHtml(new Date().toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'Europe/London',
-    }));
+    const uploadDate = escapeHtml(
+      new Date().toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'Europe/London',
+      })
+    );
 
     const html = `
       <!DOCTYPE html>
@@ -384,6 +419,141 @@ export class EmailService {
       from: EMAIL_FROM,
       to: adminEmail,
       subject: `New Document Upload: ${data.practitionerName} - ${documentTypeLabel}`,
+      html,
+    });
+  }
+
+  async sendBookingConfirmation(data: BookingConfirmationEmailData): Promise<void> {
+    const dateFormatted = formatDateSafely(data.bookingDate);
+    const escapedFirstName = escapeHtml(data.firstName);
+    const escapedRoomName = escapeHtml(data.roomName);
+    const escapedLocationName = escapeHtml(data.locationName);
+    const escapedDate = escapeHtml(dateFormatted);
+    const escapedStartTime = escapeHtml(data.startTime);
+    const escapedEndTime = escapeHtml(data.endTime);
+    const escapedTotalPrice = escapeHtml(data.totalPrice);
+    const creditLine = data.creditUsed
+      ? `<p><strong>Credit used:</strong> £${escapeHtml(data.creditUsed)}</p>`
+      : '';
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Booking Confirmation</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2c3e50;">Booking Confirmed</h1>
+            <p>Hello ${escapedFirstName},</p>
+            <p>Your room booking has been confirmed. Here are the details:</p>
+            <div style="background-color: #e8f4f8; border-left: 4px solid #3498db; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Room:</strong> ${escapedRoomName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Location:</strong> ${escapedLocationName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Date:</strong> ${escapedDate}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Time:</strong> ${escapedStartTime} – ${escapedEndTime}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Total:</strong> £${escapedTotalPrice}</p>
+              ${creditLine}
+            </div>
+            <p>If you need to cancel or change your booking, please log in to your account.</p>
+            <p>Best regards,<br>The Therapport Team</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: data.email,
+      subject: 'Booking Confirmation - Therapport',
+      html,
+    });
+  }
+
+  async sendBookingReminder(data: BookingReminderEmailData): Promise<void> {
+    const dateFormatted = formatDateSafely(data.bookingDate);
+    const escapedFirstName = escapeHtml(data.firstName);
+    const escapedRoomName = escapeHtml(data.roomName);
+    const escapedLocationName = escapeHtml(data.locationName);
+    const escapedDate = escapeHtml(dateFormatted);
+    const escapedStartTime = escapeHtml(data.startTime);
+    const escapedEndTime = escapeHtml(data.endTime);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Booking Reminder</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2c3e50;">Reminder: Your Booking in 48 Hours</h1>
+            <p>Hello ${escapedFirstName},</p>
+            <p>This is a reminder that you have a room booking coming up:</p>
+            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Room:</strong> ${escapedRoomName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Location:</strong> ${escapedLocationName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Date:</strong> ${escapedDate}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Time:</strong> ${escapedStartTime} – ${escapedEndTime}</p>
+            </div>
+            <p>We look forward to seeing you. If you need to cancel, please log in to your account.</p>
+            <p>Best regards,<br>The Therapport Team</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: data.email,
+      subject: 'Reminder: Your Booking in 48 Hours - Therapport',
+      html,
+    });
+  }
+
+  async sendBookingCancellation(data: BookingCancellationEmailData): Promise<void> {
+    const dateFormatted = formatDateSafely(data.bookingDate);
+    const escapedFirstName = escapeHtml(data.firstName);
+    const escapedRoomName = escapeHtml(data.roomName);
+    const escapedLocationName = escapeHtml(data.locationName);
+    const escapedDate = escapeHtml(dateFormatted);
+    const escapedStartTime = escapeHtml(data.startTime);
+    const escapedEndTime = escapeHtml(data.endTime);
+    const escapedRefundAmount = escapeHtml(data.refundAmount);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Booking Cancelled</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2c3e50;">Booking Cancelled</h1>
+            <p>Hello ${escapedFirstName},</p>
+            <p>Your room booking has been cancelled. Details of the cancelled booking:</p>
+            <div style="background-color: #f4f4f4; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Room:</strong> ${escapedRoomName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Location:</strong> ${escapedLocationName}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Date:</strong> ${escapedDate}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Time:</strong> ${escapedStartTime} – ${escapedEndTime}</p>
+              <p style="margin: 5px 0 0 0;"><strong>Credit refunded:</strong> £${escapedRefundAmount}</p>
+            </div>
+            <p>The refunded amount has been added back to your credit balance.</p>
+            <p>If you have any questions, please contact us at info@therapport.co.uk</p>
+            <p>Best regards,<br>The Therapport Team</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: data.email,
+      subject: 'Booking Cancelled - Therapport',
       html,
     });
   }
