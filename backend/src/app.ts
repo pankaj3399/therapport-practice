@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.routes';
 import practitionerRoutes from './routes/practitioner.routes';
 import adminRoutes from './routes/admin.routes';
 import cronRoutes from './routes/cron.routes';
+import stripeWebhookRoutes from './routes/stripe-webhook.routes';
 import { errorHandler } from './middleware/error.middleware';
 import cron from 'node-cron';
 import { cronController } from './controllers/cron.controller';
@@ -50,6 +51,9 @@ app.use(
       : 'dev' // Colored output for development
   )
 );
+
+// Stripe webhook must receive raw body for signature verification; mount before express.json()
+app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookRoutes);
 
 app.use(express.json({ limit: '15mb' })); // Increased limit for base64 image uploads (14MB max)
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
