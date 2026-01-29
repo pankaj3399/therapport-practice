@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { getStripe, STRIPE_WEBHOOK_SECRET } from '../config/stripe';
 import { logger } from '../utils/logger.util';
+import * as SubscriptionService from '../services/subscription.service';
 
 /** In-memory map of processed event IDs with timestamps for TTL cleanup (PR 6 minimal). Replace with DB in production. */
 const processedEventIds = new Map<string, number>();
@@ -51,9 +52,9 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
     return;
   }
 
+  const stripe = getStripe();
   let event: Stripe.Event;
   try {
-    const stripe = getStripe();
     event = stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -68,18 +69,87 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
     return;
   }
 
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-    case 'payment_intent.payment_failed':
-    case 'customer.subscription.created':
-    case 'customer.subscription.updated':
-    case 'customer.subscription.deleted':
-    case 'invoice.payment_succeeded':
-    case 'invoice.payment_failed':
-      logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
-      break;
-    default:
-      logger.info('Stripe webhook event (unhandled type)', { eventId: event.id, type: event.type });
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        const type = paymentIntent.metadata?.type;
+        const userId = paymentIntent.metadata?.userId;
+        const purchaseDate = paymentIntent.metadata?.purchaseDate;
+        if (type === 'ad_hoc_subscription' && userId && purchaseDate) {
+          await SubscriptionService.processAdHocPaymentSuccess(userId, purchaseDate);
+          logger.info('Ad-hoc subscription payment processed', { eventId: event.id, userId });
+        } else {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        }
+        break;
+      }
+      case 'payment_intent.payment_failed':
+        logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        break;
+      case 'customer.subscription.created': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const userId = subscription.metadata?.userId;
+        if (userId && subscription.id) {
+          await SubscriptionService.linkMonthlySubscriptionToMembership(userId, subscription.id);
+          logger.info('Monthly subscription linked to membership', { eventId: event.id, userId });
+        } else {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        }
+        break;
+      }
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+        logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        break;
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice & {
+          subscription?: string | { id?: string };
+          parent?: { subscription_details?: { metadata?: { userId?: string } } };
+        };
+        const periodEnd = invoice.period_end;
+        if (periodEnd == null) {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+          break;
+        }
+        // Prefer userId from invoice parent metadata (Stripe snapshots subscription metadata at finalization) to avoid synchronous stripe.subscriptions.retrieve.
+        let userId: string | undefined = invoice.parent?.subscription_details?.metadata?.userId;
+        if (userId == null) {
+          const subId =
+            typeof invoice.subscription === 'string'
+              ? invoice.subscription
+              : (invoice.subscription as { id?: string } | undefined)?.id;
+          if (subId) {
+            const subscription = await stripe.subscriptions.retrieve(subId);
+            userId = subscription.metadata?.userId ?? undefined;
+          }
+        }
+        if (userId != null) {
+          const paymentDate = new Date(periodEnd * 1000);
+          await SubscriptionService.processMonthlyPayment(userId, paymentDate);
+          logger.info('Monthly subscription payment processed', { eventId: event.id, userId });
+        } else {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        }
+        break;
+      }
+      case 'invoice.payment_failed':
+        logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        break;
+      default:
+        logger.info('Stripe webhook event (unhandled type)', {
+          eventId: event.id,
+          type: event.type,
+        });
+    }
+  } catch (err) {
+    logger.error(
+      'Stripe webhook handler error',
+      err instanceof Error ? err : new Error(String(err)),
+      { eventId: event.id, type: event.type }
+    );
+    res.status(500).json({ error: 'Webhook handler failed' });
+    return;
   }
 
   processedEventIds.set(event.id, Date.now());

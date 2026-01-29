@@ -12,6 +12,8 @@ import * as ProrataService from './prorata.service';
 import * as StripePaymentService from './stripe-payment.service';
 import * as CreditTransactionService from './credit-transaction.service';
 import { isStripeConfigured } from '../config/stripe';
+import { MembershipNotFoundError, OnlyAdHocTerminableError } from '../errors/subscription.errors';
+import { logger } from '../utils/logger.util';
 
 /**
  * Get existing Stripe customer ID from membership or by email, or create a new customer and persist to membership.
@@ -98,10 +100,41 @@ export function calculateSuspensionDate(terminationDate: Date | string): string 
 export interface SubscriptionStatusResult {
   canBook: boolean;
   reason?: string;
+  membership?: {
+    type: string;
+    subscriptionType: string | null;
+    subscriptionEndDate: string | null;
+    suspensionDate: string | null;
+    terminationRequestedAt: string | null;
+  };
+}
+
+function formatMembershipForStatus(membership: {
+  type: string;
+  subscriptionType: string | null;
+  subscriptionEndDate: string | Date | null;
+  suspensionDate: string | Date | null;
+  terminationRequestedAt: Date | null;
+}): SubscriptionStatusResult['membership'] {
+  return {
+    type: membership.type,
+    subscriptionType: membership.subscriptionType,
+    subscriptionEndDate:
+      membership.subscriptionEndDate != null
+        ? String(membership.subscriptionEndDate).slice(0, 10)
+        : null,
+    suspensionDate:
+      membership.suspensionDate != null ? String(membership.suspensionDate).slice(0, 10) : null,
+    terminationRequestedAt:
+      membership.terminationRequestedAt != null
+        ? membership.terminationRequestedAt.toISOString()
+        : null,
+  };
 }
 
 /**
  * Verify user can make bookings: has membership, not suspended, ad-hoc within period / monthly active.
+ * Returns membership details so callers (e.g. getSubscriptionStatusDetails) can reuse without a second query.
  */
 export async function checkSubscriptionStatus(userId: string): Promise<SubscriptionStatusResult> {
   const [userRow] = await db
@@ -113,7 +146,13 @@ export async function checkSubscriptionStatus(userId: string): Promise<Subscript
   if (userRow.status === 'suspended') return { canBook: false, reason: 'Account is suspended' };
 
   const [membership] = await db
-    .select()
+    .select({
+      type: memberships.type,
+      subscriptionType: memberships.subscriptionType,
+      subscriptionEndDate: memberships.subscriptionEndDate,
+      suspensionDate: memberships.suspensionDate,
+      terminationRequestedAt: memberships.terminationRequestedAt,
+    })
     .from(memberships)
     .where(eq(memberships.userId, userId))
     .limit(1);
@@ -128,13 +167,21 @@ export async function checkSubscriptionStatus(userId: string): Promise<Subscript
     const suspDate =
       membership.suspensionDate != null ? String(membership.suspensionDate).slice(0, 10) : null;
     if (endDate != null && endDate <= today) {
-      return { canBook: false, reason: 'Ad-hoc subscription has ended' };
+      return {
+        canBook: false,
+        reason: 'Ad-hoc subscription has ended',
+        membership: formatMembershipForStatus(membership),
+      };
     }
     if (suspDate != null && suspDate <= today) {
-      return { canBook: false, reason: 'Membership is suspended' };
+      return {
+        canBook: false,
+        reason: 'Membership is suspended',
+        membership: formatMembershipForStatus(membership),
+      };
     }
   }
-  return { canBook: true };
+  return { canBook: true, membership: formatMembershipForStatus(membership) };
 }
 
 /**
@@ -150,9 +197,9 @@ export async function terminateAdHocSubscription(
     .from(memberships)
     .where(eq(memberships.userId, userId))
     .limit(1);
-  if (!membership) throw new Error('Membership not found');
+  if (!membership) throw new MembershipNotFoundError();
   if (membership.type !== 'ad_hoc') {
-    throw new Error('Only ad-hoc subscriptions can be terminated');
+    throw new OnlyAdHocTerminableError();
   }
 
   const suspensionDate = calculateSuspensionDate(terminationDate);
@@ -285,4 +332,98 @@ export async function processMonthlyPayment(
     undefined,
     'Monthly subscription payment'
   );
+}
+
+/**
+ * Process ad-hoc subscription payment success (called from webhook when payment_intent.succeeded
+ * with metadata.type === 'ad_hoc_subscription'). Grants £150 credit and updates membership.
+ */
+export async function processAdHocPaymentSuccess(
+  userId: string,
+  purchaseDateStr: string
+): Promise<void> {
+  const d = new Date(purchaseDateStr + 'T12:00:00Z');
+  if (Number.isNaN(d.getTime())) {
+    throw new TypeError('Invalid purchaseDate');
+  }
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const subscriptionEndDate = getLastDayOfMonthString(y, m + 1);
+  const expiryDate = subscriptionEndDate;
+
+  const [membership] = await db
+    .select()
+    .from(memberships)
+    .where(eq(memberships.userId, userId))
+    .limit(1);
+  if (!membership) {
+    throw new MembershipNotFoundError('Membership not found for user');
+  }
+
+  await CreditTransactionService.grantCredits(
+    userId,
+    AD_HOC_AMOUNT_GBP,
+    expiryDate,
+    'ad_hoc_subscription',
+    undefined,
+    'Ad-hoc one-month subscription'
+  );
+
+  await db
+    .update(memberships)
+    .set({
+      type: 'ad_hoc',
+      subscriptionType: 'ad_hoc',
+      subscriptionStartDate: purchaseDateStr,
+      subscriptionEndDate,
+      updatedAt: new Date(),
+    })
+    .where(eq(memberships.id, membership.id));
+}
+
+/**
+ * Update membership when a Stripe monthly subscription is created (customer.subscription.created).
+ */
+export async function linkMonthlySubscriptionToMembership(
+  userId: string,
+  stripeSubscriptionId: string
+): Promise<void> {
+  const [membership] = await db
+    .select()
+    .from(memberships)
+    .where(eq(memberships.userId, userId))
+    .limit(1);
+  if (!membership) {
+    logger.warn('linkMonthlySubscriptionToMembership: no membership found', {
+      userId,
+      stripeSubscriptionId,
+    });
+    return;
+  }
+  await db
+    .update(memberships)
+    .set({
+      stripeSubscriptionId,
+      subscriptionType: 'monthly',
+      updatedAt: new Date(),
+    })
+    .where(eq(memberships.id, membership.id));
+}
+
+/** Alias for practitioner UI; same shape as SubscriptionStatusResult. */
+export type SubscriptionStatusDetails = SubscriptionStatusResult;
+
+/**
+ * Get subscription status and membership details for the practitioner UI.
+ * Reuses membership from checkSubscriptionStatus (single membership query).
+ */
+export async function getSubscriptionStatusDetails(
+  userId: string
+): Promise<SubscriptionStatusResult> {
+  const status = await checkSubscriptionStatus(userId);
+  return {
+    canBook: status.canBook,
+    reason: status.reason,
+    membership: status.membership,
+  };
 }

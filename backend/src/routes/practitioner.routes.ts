@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { practitionerController } from '../controllers/practitioner.controller';
 import { bookingController } from '../controllers/booking.controller';
+import { subscriptionController } from '../controllers/subscription.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { checkMarketingAddon } from '../middleware/rbac.middleware';
 
@@ -28,6 +29,29 @@ router.delete(
 );
 router.get('/rooms', authenticate, bookingController.getRooms.bind(bookingController));
 router.get('/credits', authenticate, bookingController.getCredits.bind(bookingController));
+
+// Subscription routes (PR 8)
+router.get(
+  '/subscriptions/status',
+  authenticate,
+  subscriptionController.getStatus.bind(subscriptionController)
+);
+router.post(
+  '/subscriptions/monthly',
+  authenticate,
+  subscriptionController.createMonthly.bind(subscriptionController)
+);
+router.post(
+  '/subscriptions/ad-hoc',
+  authenticate,
+  subscriptionController.createAdHoc.bind(subscriptionController)
+);
+router.post(
+  '/subscriptions/terminate',
+  authenticate,
+  subscriptionController.terminate.bind(subscriptionController)
+);
+
 router.post(
   '/documents/insurance/upload-url',
   authenticate,
