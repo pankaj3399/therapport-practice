@@ -10,6 +10,7 @@ import { ResetPassword } from './pages/auth/ResetPassword';
 import { VerifyEmailChange } from './pages/auth/VerifyEmailChange';
 import { Dashboard } from './pages/Dashboard';
 import { Bookings } from './pages/Bookings';
+import { Subscription } from './pages/Subscription';
 import { Profile } from './pages/Profile';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { PractitionerManagement } from './pages/admin/PractitionerManagement';
@@ -41,6 +42,14 @@ function App() {
               element={
                 <ProtectedRoute practitionerOnly>
                   <Bookings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/subscription"
+              element={
+                <ProtectedRoute practitionerOnly>
+                  <Subscription />
                 </ProtectedRoute>
               }
             />

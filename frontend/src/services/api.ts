@@ -256,6 +256,49 @@ export const practitionerApi = {
       signal,
     });
   },
+
+  // Subscriptions (PR 14)
+  getSubscriptionStatus: (signal?: AbortSignal) => {
+    return api.get<{
+      success: boolean;
+      canBook: boolean;
+      reason?: string;
+      membership?: {
+        type: string;
+        subscriptionType: string | null;
+        subscriptionEndDate: string | null;
+        suspensionDate: string | null;
+        terminationRequestedAt: string | null;
+      };
+    }>('/practitioner/subscriptions/status', { signal });
+  },
+
+  createMonthlySubscription: (joinDate?: string) => {
+    return api.post<{
+      success: boolean;
+      error?: string;
+      clientSecret?: string;
+      subscriptionId?: string;
+      currentMonthAmount?: number;
+    }>('/practitioner/subscriptions/monthly', joinDate ? { joinDate } : {});
+  },
+
+  createAdHocSubscription: (purchaseDate?: string) => {
+    return api.post<{
+      success: boolean;
+      error?: string;
+      clientSecret?: string;
+      paymentIntentId?: string;
+    }>('/practitioner/subscriptions/ad-hoc', purchaseDate ? { purchaseDate } : {});
+  },
+
+  terminateSubscription: (terminationDate?: string) => {
+    return api.post<{
+      success: boolean;
+      message?: string;
+      suspensionDate?: string;
+    }>('/practitioner/subscriptions/terminate', terminationDate ? { terminationDate } : {});
+  },
 };
 
 // Admin API methods
