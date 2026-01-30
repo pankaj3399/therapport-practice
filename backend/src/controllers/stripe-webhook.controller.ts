@@ -230,12 +230,21 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
         break;
       case 'invoice.payment_succeeded': {
-        const invoice = event.data.object as Stripe.Invoice & {
+        let invoice = event.data.object as Stripe.Invoice & {
           subscription?: string | { id?: string };
           parent?: { subscription_details?: { metadata?: { userId?: string } } };
         };
         const periodEnd = invoice.period_end;
         if (periodEnd == null) {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+          break;
+        }
+        let amountPaidPence = invoice.amount_paid;
+        if (amountPaidPence == null) {
+          const full = await stripe.invoices.retrieve(invoice.id);
+          amountPaidPence = full.amount_paid ?? 0;
+        }
+        if (amountPaidPence <= 0) {
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
           break;
         }
@@ -253,7 +262,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         }
         if (userId != null) {
           const paymentDate = new Date(periodEnd * 1000);
-          await SubscriptionService.processMonthlyPayment(userId, paymentDate);
+          await SubscriptionService.processMonthlyPayment(userId, paymentDate, amountPaidPence);
           logger.info('Monthly subscription payment processed', { eventId: event.id, userId });
         } else {
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });

@@ -68,6 +68,9 @@ export async function canUserBook(userId: string): Promise<{ ok: boolean; reason
 
   const today = todayUtcString();
   if (membership.type === 'ad_hoc') {
+    if (membership.subscriptionType === 'monthly' && membership.stripeSubscriptionId) {
+      return { ok: true };
+    }
     if (membership.subscriptionEndDate && membership.subscriptionEndDate < today) {
       return { ok: false, reason: 'Ad-hoc subscription has ended' };
     }

@@ -152,6 +152,7 @@ export async function checkSubscriptionStatus(userId: string): Promise<Subscript
       subscriptionEndDate: memberships.subscriptionEndDate,
       suspensionDate: memberships.suspensionDate,
       terminationRequestedAt: memberships.terminationRequestedAt,
+      stripeSubscriptionId: memberships.stripeSubscriptionId,
     })
     .from(memberships)
     .where(eq(memberships.userId, userId))
@@ -159,6 +160,9 @@ export async function checkSubscriptionStatus(userId: string): Promise<Subscript
   if (!membership) return { canBook: false, reason: 'No membership' };
 
   const today = todayUtcString();
+  if (membership.subscriptionType === 'monthly' && membership.stripeSubscriptionId) {
+    return { canBook: true, membership: formatMembershipForStatus(membership) };
+  }
   if (membership.type === 'ad_hoc') {
     const endDate =
       membership.subscriptionEndDate != null
@@ -316,12 +320,16 @@ export async function createAdHocSubscription(
 
 /**
  * Process recurring monthly payment (called from webhook when invoice.payment_succeeded).
- * Grants £105 credit expiring at end of the payment month.
+ * Grants credit equal to amount paid (in GBP), expiring at end of the invoice period month.
  */
 export async function processMonthlyPayment(
   userId: string,
-  paymentDate: Date | string
+  paymentDate: Date | string,
+  amountPaidPence: number
 ): Promise<void> {
+  if (!Number.isFinite(amountPaidPence) || amountPaidPence <= 0) {
+    return;
+  }
   const d = typeof paymentDate === 'string' ? new Date(paymentDate + 'T12:00:00Z') : paymentDate;
   if (Number.isNaN(d.getTime())) {
     throw new TypeError('Invalid paymentDate');
@@ -329,9 +337,10 @@ export async function processMonthlyPayment(
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
   const expiryDate = getLastDayOfMonthString(y, m);
+  const amountGBP = amountPaidPence / 100;
   await CreditTransactionService.grantCredits(
     userId,
-    MONTHLY_AMOUNT_GBP,
+    amountGBP,
     expiryDate,
     'monthly_subscription',
     undefined,
