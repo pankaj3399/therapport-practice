@@ -180,7 +180,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
       case 'customer.subscription.created': {
         const subscription = event.data.object as Stripe.Subscription;
         const userId = subscription.metadata?.userId;
-        if (userId && subscription.id) {
+        if (userId && subscription.id && subscription.status === 'active') {
           await SubscriptionService.linkMonthlySubscriptionToMembership(userId, subscription.id);
           logger.info('Monthly subscription linked to membership', { eventId: event.id, userId });
         } else {
@@ -188,7 +188,44 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         }
         break;
       }
-      case 'customer.subscription.updated':
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const userId = subscription.metadata?.userId;
+        if (userId && subscription.id && subscription.status === 'active') {
+          await SubscriptionService.linkMonthlySubscriptionToMembership(userId, subscription.id);
+          logger.info('Monthly subscription linked to membership', { eventId: event.id, userId });
+        } else {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        }
+        break;
+      }
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (
+          session.mode === 'subscription' &&
+          session.payment_status === 'paid' &&
+          session.subscription
+        ) {
+          const userId = session.metadata?.userId;
+          const subscriptionId =
+            typeof session.subscription === 'string'
+              ? session.subscription
+              : (session.subscription as { id?: string })?.id;
+          if (userId && subscriptionId) {
+            await SubscriptionService.linkMonthlySubscriptionToMembership(userId, subscriptionId);
+            logger.info('Monthly subscription linked from Checkout', {
+              eventId: event.id,
+              userId,
+              subscriptionId,
+            });
+          } else {
+            logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+          }
+        } else {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+        }
+        break;
+      }
       case 'customer.subscription.deleted':
         logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
         break;

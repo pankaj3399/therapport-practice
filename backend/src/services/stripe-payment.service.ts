@@ -125,7 +125,9 @@ export async function createSubscription(
   const subscription = await stripe.subscriptions.create({
     customer: params.customerId,
     items: [{ price: params.priceId }],
+    collection_method: 'charge_automatically',
     payment_behavior: 'default_incomplete',
+    payment_settings: { save_default_payment_method: 'on_subscription' },
     expand: ['latest_invoice.payment_intent'],
     ...(params.metadata && { metadata: params.metadata }),
   });
@@ -144,6 +146,61 @@ export async function createSubscription(
     clientSecret: paymentIntent?.client_secret ?? undefined,
     status: subscription.status,
   };
+}
+
+export interface CreateCheckoutSessionForSubscriptionParams {
+  customerId: string;
+  priceId: string;
+  userId: string;
+  successUrl: string;
+  cancelUrl: string;
+  /** Optional: prorated amount for current month in pence; added as one-time line on first invoice. */
+  proratedAmountPence?: number;
+}
+
+export interface CreateCheckoutSessionForSubscriptionResult {
+  checkoutUrl: string;
+}
+
+/**
+ * Create a Stripe Checkout Session for monthly subscription. User is redirected to Stripe's hosted page to pay.
+ * Subscription is created by Stripe only after successful payment.
+ * First invoice = one-time prorated line (if proratedAmountPence > 0) + first subscription period (£105).
+ */
+export async function createCheckoutSessionForSubscription(
+  params: CreateCheckoutSessionForSubscriptionParams
+): Promise<CreateCheckoutSessionForSubscriptionResult> {
+  const stripe = getStripe();
+  const lineItems: Array<
+    | { price: string; quantity: number }
+    | {
+        price_data: { currency: string; unit_amount: number; product_data: { name: string } };
+        quantity: number;
+      }
+  > = [{ price: params.priceId, quantity: 1 }];
+  if (params.proratedAmountPence != null && params.proratedAmountPence > 0) {
+    lineItems.unshift({
+      price_data: {
+        currency: 'gbp',
+        unit_amount: Math.round(params.proratedAmountPence),
+        product_data: { name: 'Prorated current month' },
+      },
+      quantity: 1,
+    });
+  }
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: params.customerId,
+    line_items: lineItems,
+    success_url: params.successUrl,
+    cancel_url: params.cancelUrl,
+    metadata: { userId: params.userId },
+    subscription_data: { metadata: { userId: params.userId } },
+  });
+  if (!session.url) {
+    throw new Error('Stripe did not return a checkout URL');
+  }
+  return { checkoutUrl: session.url };
 }
 
 /**

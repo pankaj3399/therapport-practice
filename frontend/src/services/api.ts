@@ -277,6 +277,7 @@ export const practitionerApi = {
     return api.post<{
       success: boolean;
       error?: string;
+      checkoutUrl?: string;
       clientSecret?: string;
       subscriptionId?: string;
       currentMonthAmount?: number;

@@ -221,7 +221,8 @@ export async function terminateAdHocSubscription(
 
 export interface CreateMonthlySubscriptionResult {
   customerId: string;
-  subscriptionId: string;
+  checkoutUrl?: string;
+  subscriptionId?: string;
   clientSecret?: string;
   currentMonthAmount: number;
   nextMonthAmount: number;
@@ -230,8 +231,7 @@ export interface CreateMonthlySubscriptionResult {
 }
 
 /**
- * Create monthly subscription: pro-rata for current month, full for next; create Stripe customer and subscription.
- * Credits are granted on payment confirmation (webhook in PR 8). Returns Stripe data for frontend to complete payment.
+ * Create monthly subscription: redirect user to Stripe Checkout to pay. Pro-rata for display; credits granted on payment (webhook).
  */
 export async function createMonthlySubscription(
   userId: string,
@@ -248,18 +248,22 @@ export async function createMonthlySubscription(
   }
 
   const prorata = ProrataService.calculateProrataAmount(join, MONTHLY_AMOUNT_GBP);
+  const proratedAmountPence = Math.round(prorata.currentMonthAmount * 100);
   const customerId = await getOrCreateStripeCustomerId(userId, email, name);
   const priceId = getMonthlyPriceId();
-  const subscription = await StripePaymentService.createSubscription({
+  const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const { checkoutUrl } = await StripePaymentService.createCheckoutSessionForSubscription({
     customerId,
     priceId,
-    metadata: { userId },
+    userId,
+    successUrl: `${baseUrl}/subscription?session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${baseUrl}/subscription`,
+    proratedAmountPence,
   });
 
   return {
     customerId,
-    subscriptionId: subscription.subscriptionId,
-    clientSecret: subscription.clientSecret,
+    checkoutUrl,
     currentMonthAmount: prorata.currentMonthAmount,
     nextMonthAmount: prorata.nextMonthAmount,
     currentMonthExpiry: prorata.currentMonthExpiry,

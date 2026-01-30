@@ -101,6 +101,19 @@ export const Subscription: React.FC = () => {
     };
   }, [fetchStatus]);
 
+  // After return from Stripe Checkout, show success and refetch status
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('session_id')) {
+      setPurchaseSuccessMessage('Payment successful. Your subscription is now active.');
+      statusAbortRef.current?.abort();
+      const controller = new AbortController();
+      statusAbortRef.current = controller;
+      fetchStatus(controller.signal);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   const runTerminate = async () => {
     setTerminateError(null);
     setTerminating(true);
@@ -130,6 +143,10 @@ export const Subscription: React.FC = () => {
       const data = res.data;
       if (!data.success) {
         setPurchaseError(data.error ?? 'Failed to start monthly subscription.');
+        return;
+      }
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
         return;
       }
       if (data.clientSecret) {
