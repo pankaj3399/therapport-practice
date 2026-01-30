@@ -42,6 +42,11 @@ function extractApiErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Show purchase card only for ad-hoc members without an active subscription (permanent are billed outside the app). */
+function showPurchaseCardForAdHoc(membership: SubscriptionMembership | undefined): boolean {
+  return (membership?.type === 'ad_hoc' && !membership.subscriptionType) ?? false;
+}
+
 export const Subscription: React.FC = () => {
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -258,6 +263,11 @@ export const Subscription: React.FC = () => {
                       <dt className="text-slate-500 dark:text-slate-400">Membership type</dt>
                       <dd className="font-medium capitalize">
                         {membership.type?.replace(/_/g, ' ') ?? '—'}
+                        {membership.type === 'permanent' && (
+                          <span className="text-slate-500 dark:text-slate-400 font-normal ml-1">
+                            (billed externally)
+                          </span>
+                        )}
                       </dd>
                     </div>
                     {membership.subscriptionType && (
@@ -309,7 +319,7 @@ export const Subscription: React.FC = () => {
               </output>
             )}
 
-            {status && !status.canBook && (
+            {(status && !status.canBook) || showPurchaseCardForAdHoc(membership) ? (
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Purchase subscription</CardTitle>
@@ -338,7 +348,7 @@ export const Subscription: React.FC = () => {
                   </div>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
 
             {canTerminate && (
               <Card>

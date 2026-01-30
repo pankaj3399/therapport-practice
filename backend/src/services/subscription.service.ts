@@ -166,10 +166,11 @@ export async function checkSubscriptionStatus(userId: string): Promise<Subscript
         : null;
     const suspDate =
       membership.suspensionDate != null ? String(membership.suspensionDate).slice(0, 10) : null;
-    if (endDate != null && endDate <= today) {
+    // Ad-hoc must have an active paid period to book (Week 3: subscriptionEndDate >= today)
+    if (membership.subscriptionType == null || endDate == null || endDate <= today) {
       return {
         canBook: false,
-        reason: 'Ad-hoc subscription has ended',
+        reason: 'Purchase an ad-hoc subscription to make bookings',
         membership: formatMembershipForStatus(membership),
       };
     }

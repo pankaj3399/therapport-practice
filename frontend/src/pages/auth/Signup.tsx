@@ -8,13 +8,31 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ThemeToggle } from '../../components/theme/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
 
-
-
 const MEMBERSHIP_OPTIONS = [
-  { type: 'permanent', marketing: false, label: 'Permanent', description: 'Rent a regular slot each week.' },
-  { type: 'permanent', marketing: true, label: 'Permanent + Marketing', description: 'Rent a regular slot + advertising on website.' },
-  { type: 'ad_hoc', marketing: false, label: 'Ad Hoc', description: 'Book individual hours when available.' },
-  { type: 'ad_hoc', marketing: true, label: 'Ad Hoc + Marketing', description: 'Book individual hours + advertising on website.' },
+  {
+    type: 'permanent',
+    marketing: false,
+    label: 'Permanent',
+    description: 'Rent a regular slot each week.',
+  },
+  {
+    type: 'permanent',
+    marketing: true,
+    label: 'Permanent + Marketing',
+    description: 'Rent a regular slot + advertising on website.',
+  },
+  {
+    type: 'ad_hoc',
+    marketing: false,
+    label: 'Ad Hoc',
+    description: 'Book individual hours when available.',
+  },
+  {
+    type: 'ad_hoc',
+    marketing: true,
+    label: 'Ad Hoc + Marketing',
+    description: 'Book individual hours + advertising on website.',
+  },
 ] as const;
 
 export const Signup: React.FC = () => {
@@ -49,7 +67,7 @@ export const Signup: React.FC = () => {
         membershipType,
         marketingAddon,
       });
-      navigate('/dashboard');
+      navigate(membershipType === 'ad_hoc' ? '/subscription' : '/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Registration failed. Please try again.');
     } finally {
@@ -86,13 +104,19 @@ export const Signup: React.FC = () => {
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
                 <div className="relative">
-                  <Icon name="person" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <Icon
+                    name="person"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    size={20}
+                  />
                   <Input
                     id="firstName"
                     type="text"
                     placeholder="John"
                     value={formData.firstName}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, firstName: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setFormData({ ...formData, firstName: e.target.value })
+                    }
                     className="pl-10"
                     required
                   />
@@ -101,13 +125,19 @@ export const Signup: React.FC = () => {
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name</Label>
                 <div className="relative">
-                  <Icon name="person" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <Icon
+                    name="person"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    size={20}
+                  />
                   <Input
                     id="lastName"
                     type="text"
                     placeholder="Doe"
                     value={formData.lastName}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, lastName: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setFormData({ ...formData, lastName: e.target.value })
+                    }
                     className="pl-10"
                     required
                   />
@@ -117,13 +147,19 @@ export const Signup: React.FC = () => {
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
-                <Icon name="mail" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                <Icon
+                  name="mail"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={20}
+                />
                 <Input
                   id="email"
                   type="email"
                   placeholder="john.doe@example.com"
                   value={formData.email}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
                   className="pl-10"
                   required
                 />
@@ -132,13 +168,19 @@ export const Signup: React.FC = () => {
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">
-                <Icon name="lock" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                <Icon
+                  name="lock"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={20}
+                />
                 <Input
                   id="password"
                   type="password"
                   placeholder="At least 8 characters"
                   value={formData.password}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, password: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
                   className="pl-10"
                   required
                   minLength={8}
@@ -153,15 +195,20 @@ export const Signup: React.FC = () => {
                   <button
                     key={`${option.type}-${option.marketing}`}
                     type="button"
-                    aria-pressed={membershipType === option.type && marketingAddon === option.marketing}
-                    className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${membershipType === option.type && marketingAddon === option.marketing
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-border hover:border-primary/50'
-                      }`}
+                    aria-pressed={
+                      membershipType === option.type && marketingAddon === option.marketing
+                    }
+                    className={`w-full text-left border rounded-xl p-4 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary ${
+                      membershipType === option.type && marketingAddon === option.marketing
+                        ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                        : 'border-border hover:border-primary/50'
+                    }`}
                     onClick={() => updateMembership(option.type, option.marketing)}
                   >
                     <div className="font-bold text-lg mb-1">{option.label}</div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">{option.description}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      {option.description}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -173,7 +220,10 @@ export const Signup: React.FC = () => {
           </form>
           <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
             Already have an account?{' '}
-            <Link to="/login" className="font-bold text-primary hover:text-blue-600 dark:hover:text-blue-400">
+            <Link
+              to="/login"
+              className="font-bold text-primary hover:text-blue-600 dark:hover:text-blue-400"
+            >
               Login
             </Link>
           </p>

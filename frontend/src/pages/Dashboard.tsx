@@ -62,6 +62,8 @@ export const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [insuranceDocument, setInsuranceDocument] = useState<DocumentState>({ status: 'loading' });
   const [clinicalDocument, setClinicalDocument] = useState<DocumentState>({ status: 'loading' });
+  const [subscriptionCanBook, setSubscriptionCanBook] = useState<boolean | null>(null);
+  const [subscriptionMembershipType, setSubscriptionMembershipType] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const retryControllerRef = useRef<AbortController | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -140,6 +142,26 @@ export const Dashboard: React.FC = () => {
       }
     };
   }, [user, fetchDashboardData]);
+
+  // Fetch subscription status for ad-hoc banner (only show for ad-hoc without active subscription)
+  useEffect(() => {
+    if (!user) return;
+
+    const controller = new AbortController();
+    practitionerApi
+      .getSubscriptionStatus(controller.signal)
+      .then((res) => {
+        if (res.data.success && res.data.canBook !== undefined) {
+          setSubscriptionCanBook(res.data.canBook);
+          setSubscriptionMembershipType(res.data.membership?.type ?? null);
+        }
+      })
+      .catch(() => {
+        setSubscriptionCanBook(null);
+        setSubscriptionMembershipType(null);
+      });
+    return () => controller.abort();
+  }, [user?.id, refreshTrigger]);
 
   // Fetch document status
   useEffect(() => {
@@ -499,6 +521,21 @@ export const Dashboard: React.FC = () => {
             Book a Room
           </Button>
         </div>
+
+        {/* Ad-hoc without active subscription: prompt to complete subscription */}
+        {subscriptionMembershipType === 'ad_hoc' && subscriptionCanBook === false && (
+          <div
+            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-xl bg-primary/10 dark:bg-primary/20 border border-primary/20 dark:border-primary/30"
+            role="status"
+          >
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+              Complete your subscription to make bookings.
+            </p>
+            <Button onClick={() => navigate('/subscription')} size="sm">
+              Go to Subscription
+            </Button>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
