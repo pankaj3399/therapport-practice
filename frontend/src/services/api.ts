@@ -1,5 +1,11 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import type { ApiResponse, UserStatus, PractitionerMembership, NextOfKin, ClinicalExecutor } from '../types';
+import type {
+  ApiResponse,
+  UserStatus,
+  PractitionerMembership,
+  NextOfKin,
+  ClinicalExecutor,
+} from '../types';
 import type { DocumentData } from '../types/documents';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -83,10 +89,10 @@ api.interceptors.response.use(
 
       try {
         // Try to refresh the token
-        const response = await axios.post<{ success: boolean; data: { accessToken: string; refreshToken: string } }>(
-          `${API_URL}/auth/refresh`,
-          { refreshToken }
-        );
+        const response = await axios.post<{
+          success: boolean;
+          data: { accessToken: string; refreshToken: string };
+        }>(`${API_URL}/auth/refresh`, { refreshToken });
 
         if (response.data.success && response.data.data) {
           const { accessToken, refreshToken: newRefreshToken } = response.data.data;
@@ -127,6 +133,61 @@ const validateUserId = (userId: string): void => {
   }
 };
 
+// Booking and credit types (practitioner)
+export interface BookingItem {
+  id: string;
+  roomId: string;
+  roomName: string;
+  locationName: string;
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+  pricePerHour: number;
+  totalPrice: number;
+  status: string;
+  bookingType: string;
+}
+
+export interface BookingSlot {
+  startTime: string;
+  endTime: string;
+  available: boolean;
+}
+
+export interface RoomItem {
+  id: string;
+  name: string;
+  roomNumber: number;
+  active: boolean;
+  locationName: string;
+}
+
+export interface CreditSummary {
+  currentMonth: {
+    monthYear: string;
+    totalGranted: number;
+    totalUsed: number;
+    remainingCredit: number;
+  } | null;
+  nextMonth: {
+    monthYear: string;
+    nextMonthAllocation: number;
+  } | null;
+  membershipType: 'permanent' | 'ad_hoc' | null;
+}
+
+/** Discriminated union for createBooking response; narrow via success and paymentRequired. */
+export type CreateBookingResponse =
+  | { success: true; booking: { id: string }; paymentRequired?: false }
+  | {
+      success: true;
+      paymentRequired: true;
+      clientSecret: string;
+      paymentIntentId: string;
+      amountPence: number;
+    }
+  | { success: false; error?: string };
+
 // Practitioner API methods
 export const practitionerApi = {
   getInsuranceDocument: (signal?: AbortSignal) => {
@@ -140,36 +201,97 @@ export const practitionerApi = {
       signal,
     });
   },
+
+  // Bookings (PR 12) — backend returns { success, bookings } / { success, rooms } / etc.
+  getRooms: (location?: 'Pimlico' | 'Kensington', signal?: AbortSignal) => {
+    const params = location ? { location } : {};
+    return api.get<{ success: boolean; rooms: RoomItem[] }>('/practitioner/rooms', {
+      params,
+      signal,
+    });
+  },
+
+  getBookings: (
+    params?: { fromDate?: string; toDate?: string; status?: string },
+    signal?: AbortSignal
+  ) => {
+    return api.get<{ success: boolean; bookings: BookingItem[] }>('/practitioner/bookings', {
+      params,
+      signal,
+    });
+  },
+
+  getBookingById: (id: string, signal?: AbortSignal) => {
+    return api.get<{ success: boolean; booking: BookingItem }>(`/practitioner/bookings/${id}`, {
+      signal,
+    });
+  },
+
+  getBookingAvailability: (roomId: string, date: string, signal?: AbortSignal) => {
+    return api.get<{ success: boolean; slots: BookingSlot[] }>(
+      '/practitioner/bookings/availability',
+      {
+        params: { roomId, date },
+        signal,
+      }
+    );
+  },
+
+  createBooking: (data: {
+    roomId: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    bookingType: 'permanent_recurring' | 'ad_hoc' | 'free' | 'internal';
+  }) => {
+    return api.post<CreateBookingResponse>('/practitioner/bookings', data);
+  },
+
+  cancelBooking: (id: string) => {
+    return api.delete<ApiResponse<{ message?: string }>>(`/practitioner/bookings/${id}`);
+  },
+
+  getCredits: (signal?: AbortSignal) => {
+    return api.get<{ success: boolean; credit: CreditSummary }>('/practitioner/credits', {
+      signal,
+    });
+  },
 };
 
 // Admin API methods
 export const adminApi = {
   getAdminStats: () => {
-    return api.get<ApiResponse<{
-      practitionerCount: number;
-      adHocCount: number;
-      permanentCount: number;
-    }>>('/admin/stats');
+    return api.get<
+      ApiResponse<{
+        practitionerCount: number;
+        adHocCount: number;
+        permanentCount: number;
+      }>
+    >('/admin/stats');
   },
 
   getPractitioners: (search?: string, page = 1, limit = 10) => {
     const params = { ...(search ? { search } : {}), page, limit };
     // Refine the type to include mandatory pagination at the top level
-    return api.get<ApiResponse<Array<{
-      id: string;
-      email: string;
-      firstName: string;
-      lastName: string;
-      status: UserStatus;
-      membership: PractitionerMembership | null;
-    }>> & {
-      pagination: {
-        page: number;
-        limit: number;
-        totalCount: number;
-        totalPages: number;
+    return api.get<
+      ApiResponse<
+        Array<{
+          id: string;
+          email: string;
+          firstName: string;
+          lastName: string;
+          status: UserStatus;
+          membership: PractitionerMembership | null;
+        }>
+      > & {
+        pagination: {
+          page: number;
+          limit: number;
+          totalCount: number;
+          totalPages: number;
+        };
       }
-    }>('/admin/practitioners', { params });
+    >('/admin/practitioners', { params });
   },
 
   getPractitioner: (userId: string) => {
@@ -179,49 +301,58 @@ export const adminApi = {
       return Promise.reject(error);
     }
 
-    return api.get<ApiResponse<{
-      id: string;
-      email: string;
-      firstName: string;
-      lastName: string;
-      phone?: string;
-      role: string;
-      status: UserStatus;
-      membership: PractitionerMembership | null;
-    }>>(`/admin/practitioners/${userId}`);
+    return api.get<
+      ApiResponse<{
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        phone?: string;
+        role: string;
+        status: UserStatus;
+        membership: PractitionerMembership | null;
+      }>
+    >(`/admin/practitioners/${userId}`);
   },
 
   getPractitionersWithMissingInfo: (page = 1, limit = 10, signal?: AbortSignal) => {
-    return api.get<ApiResponse<{
-      data: Array<{
-        id: string;
-        name: string;
-        missing: string[];
-      }>;
-      pagination: {
-        page: number;
-        limit: number;
-        total: number;
-        totalPages: number;
-      };
-    }>>('/admin/practitioners/missing-info', { params: { page, limit }, signal });
+    return api.get<
+      ApiResponse<{
+        data: Array<{
+          id: string;
+          name: string;
+          missing: string[];
+        }>;
+        pagination: {
+          page: number;
+          limit: number;
+          total: number;
+          totalPages: number;
+        };
+      }>
+    >('/admin/practitioners/missing-info', { params: { page, limit }, signal });
   },
 
-  updateMembership: (userId: string, data: {
-    type?: 'permanent' | 'ad_hoc' | null;
-    marketingAddon?: boolean;
-  }) => {
+  updateMembership: (
+    userId: string,
+    data: {
+      type?: 'permanent' | 'ad_hoc' | null;
+      marketingAddon?: boolean;
+    }
+  ) => {
     try {
       validateUserId(userId);
     } catch (error) {
       return Promise.reject(error);
     }
 
-    return api.put<ApiResponse<{
-      id: string;
-      type: 'permanent' | 'ad_hoc';
-      marketingAddon: boolean;
-    }>>(`/admin/practitioners/${userId}/membership`, data);
+    return api.put<
+      ApiResponse<{
+        id: string;
+        type: 'permanent' | 'ad_hoc';
+        marketingAddon: boolean;
+      }>
+    >(`/admin/practitioners/${userId}/membership`, data);
   },
 
   // Get full practitioner details (documents, next of kin, clinical executor)
@@ -232,84 +363,102 @@ export const adminApi = {
       return Promise.reject(error);
     }
 
-    return api.get<ApiResponse<{
-      id: string;
-      email: string;
-      firstName: string;
-      lastName: string;
-      phone?: string;
-      photoUrl?: string;
-
-      role: string;
-      status: UserStatus;
-      nextOfKin: NextOfKin | null;
-      createdAt: string;
-      membership: PractitionerMembership | null;
-      documents: Array<{
+    return api.get<
+      ApiResponse<{
         id: string;
-        documentType: 'insurance' | 'clinical_registration';
-        fileName: string;
-        fileUrl: string;
-        expiryDate: string | null;
+        email: string;
+        firstName: string;
+        lastName: string;
+        phone?: string;
+        photoUrl?: string;
+
+        role: string;
+        status: UserStatus;
+        nextOfKin: NextOfKin | null;
         createdAt: string;
-      }>;
-      clinicalExecutor: ClinicalExecutor | null;
-    }>>(`/admin/practitioners/${userId}/full`);
+        membership: PractitionerMembership | null;
+        documents: Array<{
+          id: string;
+          documentType: 'insurance' | 'clinical_registration';
+          fileName: string;
+          fileUrl: string;
+          expiryDate: string | null;
+          createdAt: string;
+        }>;
+        clinicalExecutor: ClinicalExecutor | null;
+      }>
+    >(`/admin/practitioners/${userId}/full`);
   },
 
   // Update practitioner profile
-  updatePractitioner: (userId: string, data: {
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
-    status?: UserStatus;
-  }) => {
+  updatePractitioner: (
+    userId: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      status?: UserStatus;
+    }
+  ) => {
     try {
       validateUserId(userId);
     } catch (error) {
       return Promise.reject(error);
     }
 
-    return api.put<ApiResponse<{
-      id: string;
-      firstName: string;
-      lastName: string;
-      phone?: string;
-      status?: UserStatus;
-    }>>(`/admin/practitioners/${userId}`, data);
+    return api.put<
+      ApiResponse<{
+        id: string;
+        firstName: string;
+        lastName: string;
+        phone?: string;
+        status?: UserStatus;
+      }>
+    >(`/admin/practitioners/${userId}`, data);
   },
 
   // Update next of kin
-  updateNextOfKin: (userId: string, data: {
-    name: string;
-    relationship: string;
-    phone: string;
-    email?: string;
-  }) => {
+  updateNextOfKin: (
+    userId: string,
+    data: {
+      name: string;
+      relationship: string;
+      phone: string;
+      email?: string;
+    }
+  ) => {
     try {
       validateUserId(userId);
     } catch (error) {
       return Promise.reject(error);
     }
 
-    return api.put<ApiResponse<{
-      nextOfKin: NextOfKin;
-    }>>(`/admin/practitioners/${userId}/next-of-kin`, data);
+    return api.put<
+      ApiResponse<{
+        nextOfKin: NextOfKin;
+      }>
+    >(`/admin/practitioners/${userId}/next-of-kin`, data);
   },
 
   // Update clinical executor
-  updateClinicalExecutor: (userId: string, data: {
-    name: string;
-    email: string;
-    phone: string;
-  }) => {
+  updateClinicalExecutor: (
+    userId: string,
+    data: {
+      name: string;
+      email: string;
+      phone: string;
+    }
+  ) => {
     try {
       validateUserId(userId);
     } catch (error) {
       return Promise.reject(error);
     }
 
-    return api.put<ApiResponse<ClinicalExecutor>>(`/admin/practitioners/${userId}/clinical-executor`, data);
+    return api.put<ApiResponse<ClinicalExecutor>>(
+      `/admin/practitioners/${userId}/clinical-executor`,
+      data
+    );
   },
 
   // Delete practitioner
@@ -328,21 +477,25 @@ export const adminApi = {
     try {
       validateUserId(userId);
       if (!documentId || typeof documentId !== 'string' || documentId.trim().length === 0) {
-        throw new Error(`Invalid documentId parameter: "${documentId}". documentId must be a non-empty string.`);
+        throw new Error(
+          `Invalid documentId parameter: "${documentId}". documentId must be a non-empty string.`
+        );
       }
     } catch (error) {
       return Promise.reject(error);
     }
 
-    return api.put<ApiResponse<{
-      id: string;
-      documentType: 'insurance' | 'clinical_registration';
-      fileName: string;
-      expiryDate: string | null;
-      isExpired: boolean;
-      isExpiringSoon: boolean;
-      daysUntilExpiry: number | null;
-    }>>(`/admin/practitioners/${userId}/documents/${documentId}/expiry`, {
+    return api.put<
+      ApiResponse<{
+        id: string;
+        documentType: 'insurance' | 'clinical_registration';
+        fileName: string;
+        expiryDate: string | null;
+        isExpired: boolean;
+        isExpiringSoon: boolean;
+        daysUntilExpiry: number | null;
+      }>
+    >(`/admin/practitioners/${userId}/documents/${documentId}/expiry`, {
       expiryDate,
     });
   },

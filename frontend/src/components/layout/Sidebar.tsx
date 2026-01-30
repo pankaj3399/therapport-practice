@@ -15,7 +15,7 @@ interface NavItem {
 // Navigation items for practitioners (renters)
 const practitionerNavItems: NavItem[] = [
   { name: 'Dashboard', icon: 'dashboard', path: '/dashboard', implemented: true },
-  { name: 'Bookings', icon: 'calendar_month', path: '/bookings', implemented: false },
+  { name: 'Bookings', icon: 'calendar_month', path: '/bookings', implemented: true },
   { name: 'Finance', icon: 'credit_card', path: '/finance', implemented: false },
   { name: 'Compliance', icon: 'description', path: '/compliance', implemented: false },
   { name: 'Support', icon: 'support_agent', path: '/support', implemented: false },
@@ -51,8 +51,12 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center gap-3 px-2">
           <img src="/logo.png" alt="Therapport" className="h-8 w-auto" />
           <div className="flex flex-col">
-            <h1 className="text-slate-900 dark:text-white text-lg font-bold leading-none">Therapport</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">{appTitle}</p>
+            <h1 className="text-slate-900 dark:text-white text-lg font-bold leading-none">
+              Therapport
+            </h1>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">
+              {appTitle}
+            </p>
           </div>
         </div>
 

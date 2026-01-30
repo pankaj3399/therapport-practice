@@ -144,6 +144,13 @@ export class BookingController {
         });
         return;
       }
+      if ((type === 'free' || type === 'internal') && req.user!.role !== 'admin') {
+        res.status(403).json({
+          success: false,
+          error: 'Only admins can create free or internal bookings',
+        });
+        return;
+      }
       const result = await BookingService.createBooking(
         req.user!.id,
         roomId,
