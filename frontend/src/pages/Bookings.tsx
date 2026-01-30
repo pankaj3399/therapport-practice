@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Icon } from '@/components/ui/Icon';
+import { PaymentModal } from '@/components/payment/PaymentModal';
 import {
   practitionerApi,
   type BookingItem,
@@ -75,6 +76,9 @@ export const Bookings: React.FC = () => {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
+  const [paymentAmountPence, setPaymentAmountPence] = useState<number | undefined>(undefined);
   // Form state
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('10:00');
@@ -248,9 +252,14 @@ export const Bookings: React.FC = () => {
         fetchSlots(c.signal);
         fetchCredit(c.signal);
       } else if (data.success && data.paymentRequired) {
-        setCreateError(
-          'Insufficient credits. Pay-the-difference payment will be available in a future update. Please add more credit or choose a shorter slot.'
-        );
+        if (!data.clientSecret) {
+          setCreateError('Payment required but payment setup failed. Please try again.');
+          return;
+        }
+        setCreateError(null);
+        setPaymentClientSecret(data.clientSecret);
+        setPaymentAmountPence(data.amountPence);
+        setPaymentModalOpen(true);
       } else if (!data.success) {
         setCreateError(data.error ?? 'Failed to create booking');
       } else {
@@ -301,8 +310,37 @@ export const Bookings: React.FC = () => {
     (b) => b.status === 'confirmed' && b.bookingDate >= today
   );
 
+  const handlePaymentModalOpenChange = (open: boolean) => {
+    setPaymentModalOpen(open);
+    if (!open) {
+      setPaymentClientSecret(null);
+      setPaymentAmountPence(undefined);
+    }
+  };
+
+  const handlePaymentSuccess = () => {
+    setPaymentModalOpen(false);
+    setPaymentClientSecret(null);
+    setPaymentAmountPence(undefined);
+    setCreateSuccess('Booking created.');
+    setCreateError(null);
+    const c = new AbortController();
+    postSuccessControllerRef.current = c;
+    fetchBookings(c.signal);
+    fetchSlots(c.signal);
+    fetchCredit(c.signal);
+  };
+
   return (
     <MainLayout>
+      <PaymentModal
+        open={paymentModalOpen}
+        onOpenChange={handlePaymentModalOpenChange}
+        clientSecret={paymentClientSecret}
+        amountPence={paymentAmountPence}
+        onSuccess={handlePaymentSuccess}
+        title="Pay the difference to complete your booking"
+      />
       <div className="space-y-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bookings</h1>
