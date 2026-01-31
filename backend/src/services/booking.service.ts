@@ -1,8 +1,9 @@
 import { db } from '../config/database';
 import { bookings, rooms, locations, memberships, users, freeBookingVouchers } from '../db/schema';
-import { eq, and, gte, asc } from 'drizzle-orm';
+import { eq, and, gte, lte, asc, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { todayUtcString, formatTimeForEmail } from '../utils/date.util';
+import { fromZonedTime } from 'date-fns-tz';
 import * as PricingService from './pricing.service';
 import * as CreditTransactionService from './credit-transaction.service';
 import * as StripePaymentService from './stripe-payment.service';
@@ -207,7 +208,101 @@ export async function getRooms(locationName?: LocationName) {
 }
 
 /**
- * Get available time slots for a room on a date (hourly 08:00-22:00).
+ * Format DB time to "HH:mm" for API.
+ */
+function formatTimeHHMM(t: string | Date): string {
+  if (typeof t === 'string') {
+    return t.length >= 5 ? t.slice(0, 5) : t;
+  }
+  const d = t as Date;
+  return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+}
+
+export interface DayCalendarRoom {
+  id: string;
+  name: string;
+}
+
+export interface DayCalendarBooking {
+  roomId: string;
+  startTime: string;
+  endTime: string;
+  bookerName?: string;
+}
+
+function mapRowToDayCalendarBooking(
+  row: {
+    roomId: string;
+    startTime: string | Date;
+    endTime: string | Date;
+    firstName?: string;
+    lastName?: string;
+  },
+  includeBookerNames: boolean
+): DayCalendarBooking {
+  const booking: DayCalendarBooking = {
+    roomId: row.roomId,
+    startTime: formatTimeHHMM(row.startTime),
+    endTime: formatTimeHHMM(row.endTime),
+  };
+  if (includeBookerNames && row.firstName !== undefined && row.lastName !== undefined) {
+    booking.bookerName =
+      [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || undefined;
+  }
+  return booking;
+}
+
+/**
+ * Get day calendar: rooms for location and all confirmed bookings for that date.
+ * When includeBookerNames is true (admin), each booking includes bookerName.
+ */
+export async function getDayCalendar(
+  location: LocationName,
+  date: string,
+  includeBookerNames: boolean
+): Promise<{ rooms: DayCalendarRoom[]; bookings: DayCalendarBooking[] }> {
+  const roomList = await getRooms(location);
+  const rooms = roomList.map((r) => ({ id: r.id, name: r.name }));
+  if (rooms.length === 0) {
+    return { rooms: [], bookings: [] };
+  }
+  const roomIds = rooms.map((r) => r.id);
+  const whereClause = and(
+    inArray(bookings.roomId, roomIds),
+    eq(bookings.bookingDate, date),
+    eq(bookings.status, 'confirmed')
+  );
+
+  if (includeBookerNames) {
+    const rows = await db
+      .select({
+        roomId: bookings.roomId,
+        startTime: bookings.startTime,
+        endTime: bookings.endTime,
+        firstName: users.firstName,
+        lastName: users.lastName,
+      })
+      .from(bookings)
+      .innerJoin(users, eq(bookings.userId, users.id))
+      .where(whereClause)
+      .orderBy(asc(bookings.startTime));
+    return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r, true)) };
+  }
+
+  const rows = await db
+    .select({
+      roomId: bookings.roomId,
+      startTime: bookings.startTime,
+      endTime: bookings.endTime,
+    })
+    .from(bookings)
+    .where(whereClause)
+    .orderBy(asc(bookings.startTime));
+  return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r, false)) };
+}
+
+/**
+ * Get available time slots for a room on a date (30-minute increments 08:00-22:00).
  * Uses a single query for confirmed bookings, then computes availability in memory.
  */
 export async function getAvailableSlots(
@@ -216,9 +311,15 @@ export async function getAvailableSlots(
 ): Promise<Array<{ startTime: string; endTime: string; available: boolean }>> {
   const existingBookings = await getConfirmedBookingsForRoomDate(roomId, date);
   const slots: Array<{ startTime: string; endTime: string; available: boolean }> = [];
-  for (let h = 8; h < 22; h++) {
-    const start = `${h.toString().padStart(2, '0')}:00`;
-    const end = `${(h + 1).toString().padStart(2, '0')}:00`;
+  for (let halfHour = 0; halfHour < 28; halfHour++) {
+    const startHours = 8 + halfHour * 0.5;
+    const endHours = startHours + 0.5;
+    const hStart = Math.floor(startHours);
+    const mStart = (startHours % 1) * 60;
+    const hEnd = Math.floor(endHours);
+    const mEnd = (endHours % 1) * 60;
+    const start = `${hStart.toString().padStart(2, '0')}:${mStart.toString().padStart(2, '0')}`;
+    const end = `${hEnd.toString().padStart(2, '0')}:${mEnd.toString().padStart(2, '0')}`;
     const available = !timeRangesOverlap(start, end, existingBookings);
     slots.push({ startTime: start, endTime: end, available });
   }
@@ -264,6 +365,22 @@ export async function validateBookingRequest(
   }
 
   return { valid: true };
+}
+
+/**
+ * Get a price quote for a booking (no side effects).
+ * Validates room and time window (08:00–22:00, end > start).
+ */
+export async function getBookingQuote(
+  roomId: string,
+  date: string,
+  startTime: string,
+  endTime: string
+): Promise<{ totalPrice: number; currency: string }> {
+  const { locationName } = await getRoomWithLocation(roomId);
+  const dateObj = new Date(date + 'T12:00:00Z');
+  const totalPrice = PricingService.calculateTotalPrice(locationName, dateObj, startTime, endTime);
+  return { totalPrice, currency: 'GBP' };
 }
 
 export type CreateBookingResult =
@@ -504,6 +621,23 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
     if (booking.status === 'cancelled')
       throw new BookingValidationError('Booking is already cancelled');
 
+    const bookingDateStr = String(booking.bookingDate);
+    const startTimeStr =
+      typeof booking.startTime === 'string'
+        ? booking.startTime.slice(0, 5)
+        : `${(booking.startTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.startTime as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+    const [y, mo, d] = bookingDateStr.split('-').map(Number);
+    const [hh, mm] = startTimeStr.split(':').map(Number);
+    const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
+    const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
+    const now = new Date();
+    const minCancelBy = bookingStartUtc.getTime() - 24 * 60 * 60 * 1000;
+    if (now.getTime() > minCancelBy) {
+      throw new BookingValidationError(
+        'Cancellation with less than 24 hours notice is not permitted'
+      );
+    }
+
     const totalPrice = parseFloat(booking.totalPrice.toString());
     await tx
       .update(bookings)
@@ -665,4 +799,83 @@ export async function getUserBookings(
     status: b.status,
     bookingType: b.bookingType,
   }));
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function formatTimeForDisplay(t: string | Date): string {
+  const str =
+    typeof t === 'string'
+      ? t.slice(0, 5)
+      : `${(t as Date).getUTCHours().toString().padStart(2, '0')}:${(t as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+  const [hh, mm] = str.split(':').map(Number);
+  const h = hh % 12 || 12;
+  const m = mm;
+  const ampm = hh < 12 ? 'am' : 'pm';
+  return m === 0 ? `${h}${ampm}` : `${h}:${m.toString().padStart(2, '0')}${ampm}`;
+}
+
+export interface PermanentSlot {
+  dayOfWeek: string;
+  roomName: string;
+  locationName: string;
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * Get distinct permanent (recurring) slots for a user from their confirmed permanent_recurring bookings.
+ * Uses a 12-week window from today to sample recurring occurrences.
+ */
+export async function getPermanentSlotsForUser(userId: string): Promise<PermanentSlot[]> {
+  const today = todayUtcString();
+  const toDate = new Date(today + 'T12:00:00Z');
+  toDate.setUTCDate(toDate.getUTCDate() + 84);
+  const toDateStr = toDate.toISOString().split('T')[0];
+
+  const rows = await db
+    .select({
+      bookingDate: bookings.bookingDate,
+      startTime: bookings.startTime,
+      endTime: bookings.endTime,
+      roomName: rooms.name,
+      locationName: locations.name,
+    })
+    .from(bookings)
+    .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+    .innerJoin(locations, eq(rooms.locationId, locations.id))
+    .where(
+      and(
+        eq(bookings.userId, userId),
+        eq(bookings.status, 'confirmed'),
+        eq(bookings.bookingType, 'permanent_recurring'),
+        gte(bookings.bookingDate, today),
+        lte(bookings.bookingDate, toDateStr)
+      )
+    );
+
+  const seen = new Set<string>();
+  const slots: PermanentSlot[] = [];
+  for (const r of rows) {
+    const dateStr = String(r.bookingDate);
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dayOfWeek = DAY_NAMES[new Date(y, m - 1, d).getDay()];
+    const startFormatted = formatTimeForDisplay(r.startTime as string | Date);
+    const endFormatted = formatTimeForDisplay(r.endTime as string | Date);
+    const key = `${dayOfWeek}|${r.roomName}|${r.locationName}|${startFormatted}|${endFormatted}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    slots.push({
+      dayOfWeek,
+      roomName: r.roomName,
+      locationName: r.locationName,
+      startTime: startFormatted,
+      endTime: endFormatted,
+    });
+  }
+  return slots.sort((a, b) => {
+    const dayOrder = DAY_NAMES.indexOf(a.dayOfWeek) - DAY_NAMES.indexOf(b.dayOfWeek);
+    if (dayOrder !== 0) return dayOrder;
+    return a.roomName.localeCompare(b.roomName) || a.locationName.localeCompare(b.locationName);
+  });
 }

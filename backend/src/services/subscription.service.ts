@@ -8,6 +8,7 @@ import { db } from '../config/database';
 import { memberships, users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { todayUtcString } from '../utils/date.util';
+import * as BookingService from './booking.service';
 import * as ProrataService from './prorata.service';
 import * as StripePaymentService from './stripe-payment.service';
 import * as CreditTransactionService from './credit-transaction.service';
@@ -107,6 +108,14 @@ export interface SubscriptionStatusResult {
     suspensionDate: string | null;
     terminationRequestedAt: string | null;
   };
+  monthlyPriceGbp?: number;
+  permanentSlots?: Array<{
+    dayOfWeek: string;
+    roomName: string;
+    locationName: string;
+    startTime: string;
+    endTime: string;
+  }>;
 }
 
 function formatMembershipForStatus(membership: {
@@ -430,14 +439,22 @@ export type SubscriptionStatusDetails = SubscriptionStatusResult;
 /**
  * Get subscription status and membership details for the practitioner UI.
  * Reuses membership from checkSubscriptionStatus (single membership query).
+ * Adds monthlyPriceGbp when user has monthly subscription; adds permanentSlots when user is permanent.
  */
 export async function getSubscriptionStatusDetails(
   userId: string
 ): Promise<SubscriptionStatusResult> {
   const status = await checkSubscriptionStatus(userId);
-  return {
+  const result: SubscriptionStatusResult = {
     canBook: status.canBook,
     reason: status.reason,
     membership: status.membership,
   };
+  if (status.membership?.subscriptionType === 'monthly') {
+    result.monthlyPriceGbp = MONTHLY_AMOUNT_GBP;
+  }
+  if (status.membership?.type === 'permanent') {
+    result.permanentSlots = await BookingService.getPermanentSlotsForUser(userId);
+  }
+  return result;
 }

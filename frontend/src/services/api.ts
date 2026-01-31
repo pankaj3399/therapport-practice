@@ -8,6 +8,15 @@ import type {
 } from '../types';
 import type { DocumentData } from '../types/documents';
 
+/** Permanent membership slot (from subscription status permanentSlots). */
+export interface PermanentSlot {
+  dayOfWeek: string;
+  roomName: string;
+  locationName: string;
+  startTime: string;
+  endTime: string;
+}
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 const api = axios.create({
@@ -237,6 +246,40 @@ export const practitionerApi = {
     );
   },
 
+  getCalendar: (location: 'Pimlico' | 'Kensington', date: string, signal?: AbortSignal) => {
+    return api.get<{
+      success: boolean;
+      rooms: Array<{ id: string; name: string }>;
+      bookings: Array<{
+        roomId: string;
+        startTime: string;
+        endTime: string;
+        bookerName?: string;
+      }>;
+    }>('/practitioner/bookings/calendar', {
+      params: { location, date },
+      signal,
+    });
+  },
+
+  getBookingQuote: (
+    roomId: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+    signal?: AbortSignal
+  ) => {
+    return api.get<{
+      success: boolean;
+      totalPrice: number;
+      currency: string;
+      error?: string;
+    }>('/practitioner/bookings/quote', {
+      params: { roomId, date, startTime, endTime },
+      signal,
+    });
+  },
+
   createBooking: (data: {
     roomId: string;
     date: string;
@@ -270,6 +313,8 @@ export const practitionerApi = {
         suspensionDate: string | null;
         terminationRequestedAt: string | null;
       };
+      monthlyPriceGbp?: number;
+      permanentSlots?: PermanentSlot[];
     }>('/practitioner/subscriptions/status', { signal });
   },
 

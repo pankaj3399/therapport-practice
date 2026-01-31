@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Icon } from '@/components/ui/Icon';
 import { PaymentModal } from '@/components/payment/PaymentModal';
-import { practitionerApi } from '@/services/api';
+import { practitionerApi, type PermanentSlot } from '@/services/api';
 import { formatDateUK } from '@/lib/utils';
 
 interface SubscriptionMembership {
@@ -29,6 +29,8 @@ interface SubscriptionStatus {
   canBook: boolean;
   reason?: string;
   membership?: SubscriptionMembership;
+  monthlyPriceGbp?: number;
+  permanentSlots?: PermanentSlot[];
 }
 
 const MONTHLY_SUBSCRIPTION_PENCE = 10500;
@@ -74,6 +76,8 @@ export const Subscription: React.FC = () => {
           canBook: res.data.canBook,
           reason: res.data.reason,
           membership: res.data.membership,
+          monthlyPriceGbp: res.data.monthlyPriceGbp,
+          permanentSlots: res.data.permanentSlots,
         });
       } else {
         setStatus(null);
@@ -321,10 +325,47 @@ export const Subscription: React.FC = () => {
                         </dd>
                       </div>
                     )}
+                    {status?.monthlyPriceGbp != null && (
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">Monthly price</dt>
+                        <dd className="font-medium">£{status.monthlyPriceGbp}</dd>
+                      </div>
+                    )}
                   </dl>
                 )}
               </CardContent>
             </Card>
+
+            {membership?.type === 'permanent' &&
+              status?.permanentSlots &&
+              status.permanentSlots.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Permanent membership</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <ul className="list-disc list-inside text-sm text-slate-700 dark:text-slate-300 space-y-1">
+                      {status.permanentSlots.map((slot, idx) => (
+                        <li key={idx}>
+                          {slot.dayOfWeek}, {slot.roomName}, {slot.locationName}, {slot.startTime}{' '}
+                          to {slot.endTime}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      To change or terminate any of your slots, please email Office Management team
+                      at{' '}
+                      <a
+                        href="mailto:info@therapport.co.uk"
+                        className="text-primary underline hover:no-underline"
+                      >
+                        info@therapport.co.uk
+                      </a>
+                      .
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
 
             {purchaseSuccessMessage && (
               <output
@@ -376,7 +417,6 @@ export const Subscription: React.FC = () => {
                   <p className="text-sm text-slate-600 dark:text-slate-400">
                     You can terminate your ad-hoc subscription at any time. You will keep access
                     until the end of the grace period (end of month after the month you terminate).
-                    No refunds are given for unused time.
                   </p>
                   {terminateError && (
                     <p className="text-sm text-red-600 dark:text-red-400" role="alert">
@@ -397,8 +437,7 @@ export const Subscription: React.FC = () => {
                         <AlertDialogTitle>Terminate ad-hoc subscription?</AlertDialogTitle>
                         <AlertDialogDescription id="terminate-description">
                           You can use the system until the end of the grace period (end of month
-                          after the month you terminate). No refunds will be given for unused time.
-                          Are you sure you want to terminate?
+                          after the month you terminate). Are you sure you want to terminate?
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

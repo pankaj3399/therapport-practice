@@ -20,6 +20,12 @@ router.get(
   authenticate,
   bookingController.getAvailability.bind(bookingController)
 );
+router.get(
+  '/bookings/calendar',
+  authenticate,
+  bookingController.getCalendar.bind(bookingController)
+);
+router.get('/bookings/quote', authenticate, bookingController.getQuote.bind(bookingController));
 router.get('/bookings/:id', authenticate, bookingController.getBookingById.bind(bookingController));
 router.post('/bookings', authenticate, bookingController.createBooking.bind(bookingController));
 router.delete(
