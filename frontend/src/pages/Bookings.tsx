@@ -19,7 +19,8 @@ import {
   type RoomItem,
   type CreditSummary,
 } from '@/services/api';
-import { fromZonedTime } from 'date-fns-tz';
+import { toZonedTime } from 'date-fns-tz';
+import { canCancelBooking } from '@/lib/booking-utils';
 import { formatDateUK } from '@/lib/utils';
 
 type LocationName = 'Pimlico' | 'Kensington';
@@ -89,6 +90,25 @@ function isRoomCoveredByRowSpan(
 /** Today's date in local timezone (YYYY-MM-DD). UK/local. */
 function todayDateString(): string {
   return new Date().toLocaleDateString('en-CA');
+}
+
+/** Today's date in Europe/London (YYYY-MM-DD). Matches backend for past-time checks. */
+function todayLondonDateString(): string {
+  const z = toZonedTime(new Date(), 'Europe/London');
+  const y = z.getFullYear();
+  const m = String(z.getMonth() + 1).padStart(2, '0');
+  const d = String(z.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Minimum start time (HH:mm) for today in Europe/London, rounded up to next 30-min slot. */
+function minStartTimeTodayLondon(): string {
+  const z = toZonedTime(new Date(), 'Europe/London');
+  const h = z.getHours();
+  const m = z.getMinutes();
+  const minM = m === 0 ? 0 : m <= 30 ? 30 : 0;
+  const minH = m <= 30 ? h : h + 1;
+  return `${String(minH).padStart(2, '0')}:${String(minM).padStart(2, '0')}`;
 }
 
 /** Max booking date: 1 month from today in local timezone (YYYY-MM-DD). Clamps day to last day of target month to avoid overflow (e.g. Jan 31 → Feb 28). */
@@ -303,6 +323,13 @@ export const Bookings: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (window.location.hash === '#my-bookings') {
+      const el = document.getElementById('my-bookings');
+      el?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
   const bookingTypesForUser =
     user?.role === 'admin' ? ALL_BOOKING_TYPES : PRACTITIONER_BOOKING_TYPES;
 
@@ -319,6 +346,10 @@ export const Bookings: React.FC = () => {
     }
     if (endTime <= startTime) {
       setCreateError('End time must be after start time.');
+      return;
+    }
+    if (date === todayLondonDateString() && startTime < minStartTimeTodayLondon()) {
+      setCreateError('Cannot book a time that has already passed.');
       return;
     }
     setCreateError(null);
@@ -389,22 +420,45 @@ export const Bookings: React.FC = () => {
     }
   };
 
-  const timeOptions = TIME_OPTIONS_30MIN;
-
   const today = useMemo(() => todayDateString(), []);
+  const todayLondon = useMemo(() => todayLondonDateString(), []);
+  const isDateToday = date === todayLondon;
+  const minStartToday = minStartTimeTodayLondon();
+  const startTimeOptions = isDateToday
+    ? TIME_OPTIONS_30MIN.filter((o) => o.value >= minStartToday)
+    : TIME_OPTIONS_30MIN;
+  const endTimeOptions = isDateToday
+    ? TIME_OPTIONS_30MIN.filter((o) => o.value > startTime && o.value >= minStartToday)
+    : TIME_OPTIONS_30MIN.filter((o) => o.value > startTime);
+
+  // When date is today, reset start/end if they fall in the past; avoid loops and never set endTime === startTime
+  useEffect(() => {
+    if (!isDateToday) return;
+    const minStart = minStartTimeTodayLondon();
+    if (startTime < minStart) {
+      const first = TIME_OPTIONS_30MIN.find((o) => o.value >= minStart);
+      if (!first) return;
+      const nextAfterFirst = TIME_OPTIONS_30MIN.find((o) => o.value > first.value);
+      const desiredStart = first.value;
+      const desiredEnd = nextAfterFirst?.value;
+      if (desiredStart !== startTime) setStartTime(desiredStart);
+      if (desiredEnd && desiredEnd > desiredStart && desiredEnd !== endTime) {
+        setEndTime(desiredEnd);
+      }
+      return;
+    }
+    if (endTime <= startTime || endTime < minStart) {
+      const nextAfterStart = TIME_OPTIONS_30MIN.find((o) => o.value > startTime);
+      const desiredEnd = nextAfterStart?.value;
+      if (desiredEnd && desiredEnd > startTime && desiredEnd !== endTime) {
+        setEndTime(desiredEnd);
+      }
+    }
+  }, [date, isDateToday, startTime, endTime]);
+
   const confirmedUpcoming = bookings.filter(
     (b) => b.status === 'confirmed' && b.bookingDate >= today
   );
-
-  /** True if the booking start is at least 24 hours from now. Uses Europe/London to match server; server is source of truth. */
-  const canCancelBooking = (bookingDate: string, startTimeStr: string): boolean => {
-    const [y, m, d] = bookingDate.split('-').map(Number);
-    const timePart = startTimeStr.slice(0, 5);
-    const [hh, mm] = timePart.split(':').map(Number);
-    const bookingStartLocal = new Date(y, m - 1, d, hh, mm, 0);
-    const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
-    return bookingStartUtc.getTime() - Date.now() >= 24 * 60 * 60 * 1000;
-  };
 
   const handlePaymentModalOpenChange = (open: boolean) => {
     setPaymentModalOpen(open);
@@ -504,23 +558,6 @@ export const Bookings: React.FC = () => {
                 />
               </label>
             </div>
-            {loadingRooms ? (
-              <p className="text-sm text-slate-500">Loading rooms…</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <span className="text-sm text-slate-600 dark:text-slate-400">Room:</span>
-                {rooms.map((r) => (
-                  <Button
-                    key={r.id}
-                    variant={selectedRoomId === r.id ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSelectedRoomId(r.id)}
-                  >
-                    {r.name}
-                  </Button>
-                ))}
-              </div>
-            )}
             {loadingCalendar ? (
               <p className="text-sm text-slate-500">Loading calendar…</p>
             ) : (
@@ -598,8 +635,25 @@ export const Bookings: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Booking for {formatDateUK(date)}
+              Booking for {formatDateUK(date)} in {location}
             </p>
+            {loadingRooms ? (
+              <p className="text-sm text-slate-500">Loading rooms…</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Room:</span>
+                {rooms.map((r) => (
+                  <Button
+                    key={r.id}
+                    variant={selectedRoomId === r.id ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSelectedRoomId(r.id)}
+                  >
+                    {r.name}
+                  </Button>
+                ))}
+              </div>
+            )}
             <div className="flex flex-wrap gap-4 items-end">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-slate-600 dark:text-slate-400">Start</span>
@@ -608,7 +662,7 @@ export const Bookings: React.FC = () => {
                   onChange={(e) => setStartTime(e.target.value)}
                   className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                 >
-                  {timeOptions.map((o) => (
+                  {startTimeOptions.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
@@ -622,7 +676,7 @@ export const Bookings: React.FC = () => {
                   onChange={(e) => setEndTime(e.target.value)}
                   className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                 >
-                  {timeOptions.map((o) => (
+                  {endTimeOptions.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
@@ -672,7 +726,7 @@ export const Bookings: React.FC = () => {
         </Card>
 
         {/* My bookings list */}
-        <Card>
+        <Card id="my-bookings">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My bookings</CardTitle>
           </CardHeader>
@@ -701,36 +755,37 @@ export const Bookings: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {confirmedUpcoming.map((b) => (
-                    <TableRow key={b.id}>
-                      <TableCell>{formatDateUK(b.bookingDate)}</TableCell>
-                      <TableCell>
-                        {b.roomName} ({b.locationName})
-                      </TableCell>
-                      <TableCell>
-                        {b.startTime.slice(0, 5)} – {b.endTime.slice(0, 5)}
-                      </TableCell>
-                      <TableCell>£{b.totalPrice.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleCancelBooking(b.id)}
-                          disabled={
-                            cancellingId === b.id || !canCancelBooking(b.bookingDate, b.startTime)
-                          }
-                          className="text-red-600 hover:text-red-700"
-                          title={
-                            !canCancelBooking(b.bookingDate, b.startTime)
-                              ? 'Cancellation with less than 24 hours notice is not permitted'
-                              : undefined
-                          }
-                        >
-                          {cancellingId === b.id ? 'Cancelling…' : 'Cancel'}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {confirmedUpcoming.map((b) => {
+                    const isCancelable = canCancelBooking(b.bookingDate, b.startTime);
+                    return (
+                      <TableRow key={b.id}>
+                        <TableCell>{formatDateUK(b.bookingDate)}</TableCell>
+                        <TableCell>
+                          {b.roomName} ({b.locationName})
+                        </TableCell>
+                        <TableCell>
+                          {b.startTime.slice(0, 5)} – {b.endTime.slice(0, 5)}
+                        </TableCell>
+                        <TableCell>£{b.totalPrice.toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCancelBooking(b.id)}
+                            disabled={cancellingId === b.id || !isCancelable}
+                            className="text-red-600 hover:text-red-700"
+                            title={
+                              !isCancelable
+                                ? 'Cancellation with less than 24 hours notice is not permitted'
+                                : undefined
+                            }
+                          >
+                            {cancellingId === b.id ? 'Cancelling…' : 'Cancel'}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

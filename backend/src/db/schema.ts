@@ -354,9 +354,7 @@ export const creditTransactionsRelations = relations(creditTransactions, ({ one 
     fields: [creditTransactions.userId],
     references: [users.id],
   }),
-}));
-
-export const stripePaymentsRelations = relations(stripePayments, ({ one }) => ({
+}));export const stripePaymentsRelations = relations(stripePayments, ({ one }) => ({
   user: one(users, {
     fields: [stripePayments.userId],
     references: [users.id],

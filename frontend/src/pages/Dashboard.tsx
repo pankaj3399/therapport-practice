@@ -17,6 +17,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDateUK } from '@/lib/utils';
 import api, { practitionerApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
+import { canCancelBooking } from '@/lib/booking-utils';
 import type { DocumentData } from '@/types/documents';
 import axios from 'axios';
 
@@ -66,7 +67,10 @@ export const Dashboard: React.FC = () => {
   const [subscriptionMembershipType, setSubscriptionMembershipType] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const retryControllerRef = useRef<AbortController | null>(null);
+  const cancelBookingControllerRef = useRef<AbortController | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const getInitials = (firstName?: string, lastName?: string) => {
     const first = firstName?.charAt(0) || '';
@@ -139,6 +143,11 @@ export const Dashboard: React.FC = () => {
       if (retryControllerRef.current) {
         retryControllerRef.current.abort();
         retryControllerRef.current = null;
+      }
+      // Abort any in-flight cancel-booking refresh
+      if (cancelBookingControllerRef.current) {
+        cancelBookingControllerRef.current.abort();
+        cancelBookingControllerRef.current = null;
       }
     };
   }, [user, fetchDashboardData]);
@@ -468,6 +477,27 @@ export const Dashboard: React.FC = () => {
     return 'text-green-500';
   };
 
+  const handleCancelBooking = async (bookingId: string) => {
+    if (!window.confirm('Are you sure you want to cancel this booking?')) return;
+    setCancellingId(bookingId);
+    setCancelError(null);
+    cancelBookingControllerRef.current = new AbortController();
+    try {
+      await practitionerApi.cancelBooking(bookingId);
+      await fetchDashboardData(cancelBookingControllerRef.current.signal);
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null;
+      setCancelError(msg ?? 'Cancellation failed. Please try again.');
+    } finally {
+      setCancellingId(null);
+      cancelBookingControllerRef.current?.abort();
+      cancelBookingControllerRef.current = null;
+    }
+  };
+
   if (loading) {
     return (
       <MainLayout>
@@ -516,7 +546,7 @@ export const Dashboard: React.FC = () => {
               <span className="text-slate-800 dark:text-slate-200 font-medium">{currentDate}</span>.
             </p>
           </div>
-          <Button>
+          <Button onClick={() => navigate('/bookings')}>
             <Icon name="add" size={20} className="mr-2" />
             Book a Room
           </Button>
@@ -540,7 +570,7 @@ export const Dashboard: React.FC = () => {
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Credit Balance */}
-          <Card className="relative overflow-hidden group h-40">
+          <Card className="relative overflow-hidden group min-h-40">
             <div className="absolute right-0 top-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
               <Icon name="account_balance_wallet" className="text-6xl text-primary" />
             </div>
@@ -560,8 +590,8 @@ export const Dashboard: React.FC = () => {
                   </p>
                   {dashboardData.credit.nextMonth && (
                     <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                      Next month: £{dashboardData.credit.nextMonth.nextMonthAllocation.toFixed(2)}{' '}
-                      available
+                      {formatMonthYear(dashboardData.credit.nextMonth.monthYear)}: £
+                      {dashboardData.credit.nextMonth.nextMonthAllocation.toFixed(2)} available
                     </p>
                   )}
                   {/* Low credit warning */}
@@ -570,9 +600,9 @@ export const Dashboard: React.FC = () => {
                     dashboardData.credit.currentMonth.remainingCredit /
                       dashboardData.credit.currentMonth.totalGranted <
                       0.2 && (
-                      <div className="mt-2 flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
+                      <div className="mt-2 flex items-center gap-2 p-2 min-w-0 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
                         <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
-                        <span className="text-orange-700 dark:text-orange-300 font-medium">
+                        <span className="text-orange-700 dark:text-orange-300 font-medium break-words">
                           Low credit remaining
                         </span>
                       </div>
@@ -659,11 +689,21 @@ export const Dashboard: React.FC = () => {
                   <Icon name="event_available" className="text-primary" />
                   Upcoming Bookings
                 </CardTitle>
-                <Button variant="ghost" size="sm" className="text-sm font-bold text-primary">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-sm font-bold text-primary"
+                  onClick={() => navigate('/bookings#my-bookings')}
+                >
                   View All
                 </Button>
               </CardHeader>
               <CardContent className="p-0">
+                {cancelError && (
+                  <p className="px-6 py-2 text-sm text-red-600 dark:text-red-400" role="alert">
+                    {cancelError}
+                  </p>
+                )}
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -677,7 +717,9 @@ export const Dashboard: React.FC = () => {
                   <TableBody>
                     {dashboardData?.upcomingBookings &&
                     dashboardData.upcomingBookings.length > 0 ? (
-                      dashboardData.upcomingBookings.map((booking) => (
+                      dashboardData.upcomingBookings.map((booking) => {
+                        const isCancelable = canCancelBooking(booking.bookingDate, booking.startTime);
+                        return (
                         <TableRow key={booking.id}>
                           <TableCell className="font-medium">
                             {booking.roomName} ({booking.locationName})
@@ -686,12 +728,26 @@ export const Dashboard: React.FC = () => {
                           <TableCell>{formatTime(booking.startTime)}</TableCell>
                           <TableCell>{formatTime(booking.endTime)}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="sm">
-                              <Icon name="cancel" size={18} />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleCancelBooking(booking.id)}
+                              disabled={cancellingId === booking.id || !isCancelable}
+                              title={
+                                !isCancelable
+                                  ? 'Cancellation with less than 24 hours notice is not permitted'
+                                  : undefined
+                              }
+                            >
+                              {cancellingId === booking.id ? (
+                                'Cancelling…'
+                              ) : (
+                                <Icon name="cancel" size={18} />
+                              )}
                             </Button>
                           </TableCell>
                         </TableRow>
-                      ))
+                      ); })
                     ) : (
                       <TableRow>
                         <TableCell

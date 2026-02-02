@@ -342,6 +342,16 @@ export async function validateBookingRequest(
   const today = todayUtcString();
   if (date < today) return { valid: false, error: 'Booking date must be today or in the future' };
 
+  // Reject if booking start (date + startTime in Europe/London) is in the past
+  const [by, bmo, bd] = date.split('-').map(Number);
+  const startPart = startTime.trim().slice(0, 5);
+  const [hh, mm] = startPart.split(':').map(Number);
+  const bookingStartLocal = new Date(by, bmo - 1, bd, hh, mm, 0);
+  const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
+  if (bookingStartUtc.getTime() <= Date.now()) {
+    return { valid: false, error: 'Cannot book a time that has already passed' };
+  }
+
   const [y, m, d] = today.split('-').map(Number);
   const maxDate = new Date(Date.UTC(y, m - 1, d));
   maxDate.setUTCMonth(maxDate.getUTCMonth() + 1);
