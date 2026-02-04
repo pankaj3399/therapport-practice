@@ -5,6 +5,13 @@ import { formatMonthYear } from '../utils/date.util';
 import { logger } from '../utils/logger.util';
 import * as CreditTransactionService from './credit-transaction.service';
 
+export interface CreditSummaryByMonth {
+  /** Month key based on expiry date: YYYY-MM (UTC). */
+  month: string;
+  /** Sum of remainingAmount for non-expired credit transactions in this month. */
+  remainingCredit: number;
+}
+
 export interface CreditSummary {
   currentMonth: {
     monthYear: string;
@@ -17,6 +24,11 @@ export interface CreditSummary {
     monthYear: string;
     nextMonthAllocation: number;
   } | null;
+  /**
+   * Breakdown of remaining credit by expiry month (grouped by creditTransactions.expiryDate month).
+   * Optional for backward compatibility; UI should fall back when undefined.
+   */
+  byMonth?: CreditSummaryByMonth[];
   membershipType: 'permanent' | 'ad_hoc' | null;
 }
 
@@ -25,7 +37,7 @@ export class CreditService {
    * Get credit balance for a user.
    * For ad_hoc members: uses transaction-based credits (non-expired, sum of remainingAmount).
    * For permanent members: returns null (no monthly credit in this system).
-   * Response shape is compatible with dashboard (currentMonth, nextMonth, membershipType).
+   * Response shape is compatible with dashboard (currentMonth, nextMonth, membershipType, byMonth).
    */
   static async getCreditBalance(userId: string): Promise<CreditSummary> {
     try {
@@ -46,19 +58,40 @@ export class CreditService {
       const nextMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
       const nextMonthStr = formatMonthYear(nextMonthDate);
 
-      const totals = await CreditTransactionService.getCreditBalanceTotals(userId);
+      const [totals, summaryByExpiry] = await Promise.all([
+        CreditTransactionService.getCreditBalanceTotals(userId),
+        CreditTransactionService.getCreditSummary(userId),
+      ]);
+
+      // Group remaining non-expired credits by expiry month (YYYY-MM, based on expiryDate in UTC).
+      const byMonthMap = new Map<string, number>();
+      for (const entry of summaryByExpiry.byExpiry) {
+        if (!entry.expiryDate) continue;
+        const monthKey = entry.expiryDate.slice(0, 7); // YYYY-MM
+        const existing = byMonthMap.get(monthKey) ?? 0;
+        byMonthMap.set(monthKey, existing + entry.remainingAmount);
+      }
+
+      const byMonth: CreditSummaryByMonth[] = Array.from(byMonthMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, remainingCredit]) => ({
+          month,
+          remainingCredit,
+        }));
 
       return {
         currentMonth: {
           monthYear: currentMonthStr,
           totalGranted: totals.totalGranted,
           totalUsed: totals.totalUsed,
+          // Keep totalAvailable here for backward compatibility; UI now prefers byMonth.
           remainingCredit: totals.totalAvailable,
         },
         nextMonth: {
           monthYear: nextMonthStr,
           nextMonthAllocation: 0,
         },
+        byMonth,
         membershipType: membership.type,
       };
     } catch (error) {

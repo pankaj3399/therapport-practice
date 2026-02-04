@@ -182,6 +182,15 @@ export interface CreditSummary {
     monthYear: string;
     nextMonthAllocation: number;
   } | null;
+  /**
+   * Optional breakdown of remaining credit by expiry month (YYYY-MM).
+   * When present, this should be used by the UI in preference to currentMonth/nextMonth
+   * for showing monthly buckets.
+   */
+  byMonth?: Array<{
+    month: string;
+    remainingCredit: number;
+  }>;
   membershipType: 'permanent' | 'ad_hoc' | null;
 }
 
