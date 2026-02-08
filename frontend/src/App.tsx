@@ -12,6 +12,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Bookings } from './pages/Bookings';
 import { Subscription } from './pages/Subscription';
 import { Profile } from './pages/Profile';
+import { Finance } from './pages/Finance';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { PractitionerManagement } from './pages/admin/PractitionerManagement';
 import { AdminCalendar } from './pages/admin/AdminCalendar';
@@ -51,6 +52,14 @@ function App() {
               element={
                 <ProtectedRoute practitionerOnly>
                   <Subscription />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance"
+              element={
+                <ProtectedRoute practitionerOnly>
+                  <Finance />
                 </ProtectedRoute>
               }
             />

@@ -1,9 +1,11 @@
 import { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../config/database';
-import { users } from '../db/schema';
+import { users, memberships } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import * as SubscriptionService from '../services/subscription.service';
+import * as StripePaymentService from '../services/stripe-payment.service';
+import { isStripeConfigured } from '../config/stripe';
 import {
   MembershipNotFoundError,
   OnlyAdHocTerminableError,
@@ -172,6 +174,42 @@ export class SubscriptionController {
         { userId: req.user?.id }
       );
       res.status(500).json({ success: false, error: message });
+    }
+  }
+
+  /**
+   * GET /api/practitioner/invoices
+   * List Stripe invoices for the current user (by stripeCustomerId). Download via invoice_pdf URL from Stripe only; no DB.
+   */
+  async getInvoices(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      if (!isStripeConfigured()) {
+        res.status(200).json({ success: true, invoices: [] });
+        return;
+      }
+      const [row] = await db
+        .select({ stripeCustomerId: memberships.stripeCustomerId })
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      const customerId = row?.stripeCustomerId?.trim();
+      if (!customerId) {
+        res.status(200).json({ success: true, invoices: [] });
+        return;
+      }
+      const invoices = await StripePaymentService.listInvoicesForCustomer(customerId);
+      res.status(200).json({ success: true, invoices });
+    } catch (error) {
+      logger.error(
+        'Failed to list invoices',
+        error instanceof Error ? error : new Error(String(error)),
+        { userId: req.user?.id }
+      );
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list invoices',
+      });
     }
   }
 }

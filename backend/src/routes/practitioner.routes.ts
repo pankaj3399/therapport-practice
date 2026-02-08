@@ -40,6 +40,7 @@ router.delete(
 );
 router.get('/rooms', authenticate, bookingController.getRooms.bind(bookingController));
 router.get('/credits', authenticate, bookingController.getCredits.bind(bookingController));
+router.get('/invoices', authenticate, subscriptionController.getInvoices.bind(subscriptionController));
 
 // Subscription routes (PR 8)
 router.get(

@@ -363,6 +363,21 @@ export const practitionerApi = {
       suspensionDate?: string;
     }>('/practitioner/subscriptions/terminate', terminationDate ? { terminationDate } : {});
   },
+
+  getInvoices: (signal?: AbortSignal) => {
+    return api.get<{
+      success: boolean;
+      invoices: Array<{
+        id: string;
+        number: string | null;
+        status: string;
+        amount_paid: number;
+        currency: string;
+        created: number;
+        invoice_pdf: string | null;
+      }>;
+    }>('/practitioner/invoices', { signal });
+  },
 };
 
 // Admin API methods

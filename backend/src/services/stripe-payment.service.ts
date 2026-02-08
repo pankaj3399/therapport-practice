@@ -258,3 +258,31 @@ export async function refundPayment(params: RefundPaymentParams) {
   }
   return getStripe().refunds.create(payload);
 }
+
+export interface InvoiceListItem {
+  id: string;
+  number: string | null;
+  status: string;
+  amount_paid: number;
+  currency: string;
+  created: number;
+  invoice_pdf: string | null;
+}
+
+/**
+ * List Stripe invoices for a customer. Used for practitioner Finance page (list + download from Stripe only).
+ */
+export async function listInvoicesForCustomer(customerId: string): Promise<InvoiceListItem[]> {
+  if (!customerId?.trim()) return [];
+  const stripe = getStripe();
+  const list = await stripe.invoices.list({ customer: customerId.trim(), limit: 100 });
+  return list.data.map((inv) => ({
+    id: inv.id,
+    number: inv.number ?? null,
+    status: inv.status ?? 'unknown',
+    amount_paid: inv.amount_paid ?? 0,
+    currency: (inv.currency ?? 'gbp').toLowerCase(),
+    created: inv.created,
+    invoice_pdf: inv.invoice_pdf ?? null,
+  }));
+}
