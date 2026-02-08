@@ -285,7 +285,7 @@ export async function listInvoicesForCustomer(customerId: string): Promise<Invoi
   const stripe = getStripe();
   const customer = customerId.trim();
   const results: InvoiceListItem[] = [];
-  for await (const inv of stripe.invoices.list({ customer }).autoPagingIterator()) {
+  for await (const inv of stripe.invoices.list({ customer })) {
     results.push({
       id: inv.id,
       number: inv.number ?? null,
@@ -320,12 +320,10 @@ export async function getRevenueForMonthGbp(yearMonth: {
     Date.UTC(yearMonth.year, yearMonth.month, 1, 0, 0, 0, 0) / 1000
   );
   let totalPence = 0;
-  for await (const pi of stripe.paymentIntents
-    .list({
-      created: { gte: start, lt: end },
-      limit: 100,
-    })
-    .autoPagingIterator()) {
+  for await (const pi of stripe.paymentIntents.list({
+    created: { gte: start, lt: end },
+    limit: 100,
+  })) {
     if (pi.status !== 'succeeded' || pi.amount_received == null) continue;
     const type = (pi.metadata?.type as string) ?? '';
     if (type === 'pay_the_difference') continue;
