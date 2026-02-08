@@ -23,6 +23,8 @@ import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
 import { ReminderService } from '../services/reminder.service';
 import { calculateExpiryStatus } from '../utils/date.util';
+import * as CreditService from '../services/credit.service';
+import * as VoucherService from '../services/voucher.service';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
@@ -463,6 +465,86 @@ export class AdminController {
         targetUserId: req.params.userId,
         method: req.method,
         url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** GET /admin/practitioners/:userId/credits – admin view of practitioner credit + voucher summary */
+  async getPractitionerCredits(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      const [creditSummary, voucherSummary] = await Promise.all([
+        CreditService.CreditService.getCreditBalance(userId),
+        VoucherService.VoucherService.getRemainingFreeHours(userId),
+      ]);
+      res.status(200).json({
+        success: true,
+        data: { credit: creditSummary, voucher: voucherSummary },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to get practitioner credits', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** POST /admin/practitioners/:userId/vouchers – allocate free booking hours */
+  async allocateVoucher(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const schema = z.object({
+        hoursAllocated: z.number().positive('Hours must be positive'),
+        expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expiry date must be YYYY-MM-DD'),
+        reason: z.string().optional(),
+      });
+      const body = await schema.parseAsync(req.body);
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      const [row] = await db
+        .insert(freeBookingVouchers)
+        .values({
+          userId,
+          hoursAllocated: String(body.hoursAllocated),
+          hoursUsed: '0.00',
+          expiryDate: body.expiryDate,
+          reason: body.reason ?? null,
+        })
+        .returning();
+      res.status(201).json({
+        success: true,
+        data: {
+          id: row.id,
+          hoursAllocated: body.hoursAllocated,
+          expiryDate: body.expiryDate,
+          reason: row.reason ?? undefined,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ success: false, error: error.errors.map((e) => e.message).join(', ') });
+      }
+      logger.error('Failed to allocate voucher', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
       });
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
@@ -1079,19 +1161,18 @@ export class AdminController {
         .where(eq(documents.id, documentId))
         .returning();
 
-      // If expiry date changed and new date is provided, reschedule reminders
+      // If expiry date changed and new date is provided, reschedule reminders (insurance and clinical_registration only)
       if (oldExpiryDate !== newExpiryDate && newExpiryDate) {
-        // Cancel old reminders
         await ReminderService.cancelDocumentReminders(documentId);
-
-        // Schedule new reminders with updated expiry date
-        await ReminderService.scheduleDocumentReminders(
-          userId,
-          documentId,
-          document.documentType,
-          document.fileName,
-          newExpiryDate
-        );
+        if (document.documentType === 'insurance' || document.documentType === 'clinical_registration') {
+          await ReminderService.scheduleDocumentReminders(
+            userId,
+            documentId,
+            document.documentType,
+            document.fileName,
+            newExpiryDate
+          );
+        }
       } else if (oldExpiryDate && !newExpiryDate) {
         // If expiry date was removed, cancel existing reminders
         await ReminderService.cancelDocumentReminders(documentId);

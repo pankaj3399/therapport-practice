@@ -22,6 +22,7 @@ import { ProfileTab } from './components/ProfileTab';
 import { MembershipTab } from './components/MembershipTab';
 import { NextOfKinTab } from './components/NextOfKinTab';
 import { ClinicalTab } from './components/ClinicalTab';
+import { CreditsVouchersTab, type CreditSummary, type VoucherSummary } from './components/CreditsVouchersTab';
 import { UserStatus, PractitionerMembership, NextOfKin, ClinicalExecutor, PractitionerDocument } from '@/types';
 
 const statusColors: Record<UserStatus, string> = {
@@ -67,6 +68,9 @@ export const PractitionerManagement: React.FC = () => {
     const [detailLoading, setDetailLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState('profile');
+    const [creditsData, setCreditsData] = useState<{ credit: CreditSummary; voucher: VoucherSummary } | null>(null);
+    const [creditsLoading, setCreditsLoading] = useState(false);
+    const [allocatingVoucher, setAllocatingVoucher] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const detailPanelRef = useRef<HTMLDivElement>(null);
@@ -170,12 +174,32 @@ export const PractitionerManagement: React.FC = () => {
 
     const handleSearch = () => fetchPractitioners();
 
+    const fetchCreditsForPractitioner = useCallback(async (practitionerId: string) => {
+        setCreditsLoading(true);
+        setCreditsData(null);
+        try {
+            const res = await adminApi.getPractitionerCredits(practitionerId);
+            if (res.data.success && res.data.data) {
+                setCreditsData(res.data.data);
+            }
+        } catch {
+            setCreditsData(null);
+        } finally {
+            setCreditsLoading(false);
+        }
+    }, []);
+
     const handleSelectPractitioner = async (practitionerId: string) => {
         try {
             setDetailLoading(true);
-            const response = await adminApi.getFullPractitioner(practitionerId);
+            setCreditsData(null);
+            const [response, _] = await Promise.all([
+                adminApi.getFullPractitioner(practitionerId),
+                adminApi.getPractitionerCredits(practitionerId).then((res) => {
+                    if (res.data.success && res.data.data) setCreditsData(res.data.data);
+                }).catch(() => setCreditsData(null)),
+            ]);
             if (response.data.success && response.data.data) {
-                // Just update data, scroll effect handles visibility
                 setSelectedPractitioner(response.data.data);
                 setActiveTab('profile');
             }
@@ -279,6 +303,20 @@ export const PractitionerManagement: React.FC = () => {
         } catch (error: any) {
             setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to update expiry date' });
             throw error;
+        }
+    };
+
+    const handleAllocateVoucher = async (data: { hoursAllocated: number; expiryDate: string; reason?: string }) => {
+        if (!selectedPractitioner) return;
+        try {
+            setAllocatingVoucher(true);
+            await adminApi.allocateVoucher(selectedPractitioner.id, data);
+            setMessageWithTimeout({ type: 'success', text: 'Free hours allocated successfully' });
+            await fetchCreditsForPractitioner(selectedPractitioner.id);
+        } catch (error: any) {
+            setMessageWithTimeout({ type: 'error', text: error.response?.data?.error || 'Failed to allocate hours' });
+        } finally {
+            setAllocatingVoucher(false);
         }
     };
 
@@ -454,9 +492,10 @@ export const PractitionerManagement: React.FC = () => {
                                     <div className="text-center py-8 text-slate-500">Loading details...</div>
                                 ) : (
                                     <Tabs value={activeTab} onValueChange={setActiveTab}>
-                                        <TabsList className="grid w-full grid-cols-4">
+                                        <TabsList className="grid w-full grid-cols-5">
                                             <TabsTrigger value="profile">Profile</TabsTrigger>
                                             <TabsTrigger value="membership">Membership</TabsTrigger>
+                                            <TabsTrigger value="credits">Credits & vouchers</TabsTrigger>
                                             <TabsTrigger value="nextofkin">Next of Kin</TabsTrigger>
                                             <TabsTrigger value="clinical">Professional</TabsTrigger>
                                         </TabsList>
@@ -485,6 +524,17 @@ export const PractitionerManagement: React.FC = () => {
                                                 onTypeChange={setMembershipType}
                                                 onAddonChange={setMarketingAddon}
                                                 onSave={handleSaveMembership}
+                                            />
+                                        </TabsContent>
+
+                                        {/* Credits & Vouchers Tab */}
+                                        <TabsContent value="credits" className="mt-0">
+                                            <CreditsVouchersTab
+                                                credit={creditsData?.credit ?? null}
+                                                voucher={creditsData?.voucher ?? null}
+                                                loading={(detailLoading && !creditsData) || creditsLoading}
+                                                allocating={allocatingVoucher}
+                                                onAllocate={handleAllocateVoucher}
                                             />
                                         </TabsContent>
 

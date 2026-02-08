@@ -567,6 +567,61 @@ export const adminApi = {
     );
   },
 
+  // Get practitioner credits and voucher summary (admin)
+  getPractitionerCredits: (userId: string) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.get<
+      ApiResponse<{
+        credit: {
+          currentMonth: { monthYear: string; totalGranted: number; totalUsed: number; remainingCredit: number } | null;
+          nextMonth: { monthYear: string; nextMonthAllocation: number } | null;
+          byMonth?: Array<{ month: string; remainingCredit: number }>;
+          membershipType: 'permanent' | 'ad_hoc' | null;
+        };
+        voucher: {
+          totalHoursAllocated: number;
+          totalHoursUsed: number;
+          remainingHours: number;
+          earliestExpiry: string | null;
+          vouchers: Array<{
+            id: string;
+            hoursAllocated: number;
+            hoursUsed: number;
+            remainingHours: number;
+            expiryDate: string;
+            reason: string | null;
+          }>;
+        };
+      }>
+    >(`/admin/practitioners/${userId}/credits`);
+  },
+
+  // Allocate free booking hours (voucher) to practitioner
+  allocateVoucher: (
+    userId: string,
+    data: { hoursAllocated: number; expiryDate: string; reason?: string }
+  ) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.post<
+      ApiResponse<{
+        id: string;
+        hoursAllocated: number;
+        expiryDate: string;
+        reason?: string;
+      }>
+    >(`/admin/practitioners/${userId}/vouchers`, data);
+  },
+
   // Delete practitioner
   deletePractitioner: (userId: string) => {
     try {

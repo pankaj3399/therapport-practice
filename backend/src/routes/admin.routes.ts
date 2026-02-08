@@ -42,6 +42,22 @@ router.get(
   adminController.getFullPractitioner.bind(adminController)
 );
 
+// Get practitioner credits and voucher summary (admin)
+router.get(
+  '/practitioners/:userId/credits',
+  authenticate,
+  requireRole('admin'),
+  adminController.getPractitionerCredits.bind(adminController)
+);
+
+// Allocate free booking hours (voucher) to practitioner
+router.post(
+  '/practitioners/:userId/vouchers',
+  authenticate,
+  requireRole('admin'),
+  adminController.allocateVoucher.bind(adminController)
+);
+
 // Update practitioner profile
 router.put(
   '/practitioners/:userId',
