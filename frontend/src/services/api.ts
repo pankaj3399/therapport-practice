@@ -358,14 +358,22 @@ export const practitionerApi = {
 
 // Admin API methods
 export const adminApi = {
-  getAdminStats: () => {
+  getAdminStats: (params?: { fromDate?: string; toDate?: string }) => {
     return api.get<
       ApiResponse<{
         practitionerCount: number;
         adHocCount: number;
         permanentCount: number;
+        occupancy: {
+          fromDate: string;
+          toDate: string;
+          totalSlotHours: number;
+          bookedHours: number;
+          occupancyPercent: number;
+        };
+        revenueCurrentMonthGbp: number;
       }>
-    >('/admin/stats');
+    >('/admin/stats', { params });
   },
 
   getPractitioners: (search?: string, page = 1, limit = 10) => {

@@ -13,9 +13,11 @@ import {
   invoices,
   emailNotifications,
   passwordResets,
-  emailChangeRequests
+  emailChangeRequests,
+  rooms,
+  stripePayments,
 } from '../db/schema';
-import { eq, and, or, ilike, aliasedTable, isNull, sql, SQL, count } from 'drizzle-orm';
+import { eq, and, or, not, ilike, aliasedTable, isNull, sql, SQL, count, gte, lte, lt } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
@@ -50,6 +52,9 @@ const updateClinicalExecutorSchema = z.object({
 const updateDocumentExpirySchema = z.object({
   expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expiry date must be in YYYY-MM-DD format').nullable().optional(),
 });
+
+/** Operating hours 08:00–22:00 = 14h per room per day for occupancy capacity. */
+const DAILY_OPERATING_HOURS = 14;
 
 export class AdminController {
   async getPractitioners(req: AuthRequest, res: Response) {
@@ -158,7 +163,29 @@ export class AdminController {
         return res.status(401).json({ success: false, error: 'Authentication required' });
       }
 
-      // Efficiently count practitioners using COUNT query
+      const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+      const now = new Date();
+      const firstDayOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const lastDayOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+      const defaultFrom = firstDayOfMonth.toISOString().split('T')[0];
+      const defaultTo = lastDayOfMonth.toISOString().split('T')[0];
+
+      const fromDate = (req.query.fromDate as string)?.trim() || defaultFrom;
+      const toDate = (req.query.toDate as string)?.trim() || defaultTo;
+      if (!DATE_REGEX.test(fromDate) || !DATE_REGEX.test(toDate)) {
+        return res.status(400).json({
+          success: false,
+          error: 'fromDate and toDate must be YYYY-MM-DD',
+        });
+      }
+      if (fromDate > toDate) {
+        return res.status(400).json({
+          success: false,
+          error: 'fromDate must be before or equal to toDate',
+        });
+      }
+
+      // Practitioner and membership counts
       const [result] = await db
         .select({ count: count() })
         .from(users)
@@ -166,7 +193,6 @@ export class AdminController {
 
       const practitionerCount = result?.count || 0;
 
-      // Count memberships by type in a single query
       const [membershipCounts] = await db
         .select({
           adHocCount: sql<number>`count(*) filter (where ${memberships.type} = 'ad_hoc')`,
@@ -174,12 +200,92 @@ export class AdminController {
         })
         .from(memberships);
 
+      // Occupancy: booked slot-hours vs total slot capacity in date range (08:00–22:00 = 14h per room per day)
+      const [roomCountRow] = await db
+        .select({ count: count() })
+        .from(rooms)
+        .where(eq(rooms.active, true));
+      const roomCount = roomCountRow?.count || 0;
+
+      const fromDateObj = new Date(fromDate + 'T12:00:00Z');
+      const toDateObj = new Date(toDate + 'T12:00:00Z');
+      const daysInRange =
+        Math.max(0, Math.ceil((toDateObj.getTime() - fromDateObj.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+      const totalSlotHours = daysInRange * roomCount * DAILY_OPERATING_HOURS;
+
+      const confirmedBookingsInRange = await db
+        .select({
+          startTime: bookings.startTime,
+          endTime: bookings.endTime,
+        })
+        .from(bookings)
+        .where(
+          and(
+            or(eq(bookings.status, 'confirmed'), eq(bookings.status, 'completed')),
+            gte(bookings.bookingDate, fromDate),
+            lte(bookings.bookingDate, toDate)
+          )
+        );
+
+      let bookedHours = 0;
+      for (const b of confirmedBookingsInRange) {
+        const start = String(b.startTime);
+        const end = String(b.endTime);
+        const [sh, sm] = start.split(':').map(Number);
+        const [eh, em] = end.split(':').map(Number);
+        const startMins = sh * 60 + (sm || 0);
+        const endMins = eh * 60 + (em || 0);
+        bookedHours += (endMins - startMins) / 60;
+      }
+      const occupancyPercent =
+        totalSlotHours > 0 ? Math.min(100, Math.round((bookedHours / totalSlotHours) * 100 * 100) / 100) : 0;
+
+      // Revenue: current month only — Stripe (succeeded) + booking total_price (confirmed/completed)
+      const firstDayOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      const [stripeRevenueRow] = await db
+        .select({
+          total: sql<string>`coalesce(sum(${stripePayments.amount}), 0)`,
+        })
+        .from(stripePayments)
+        .where(
+          and(
+            eq(stripePayments.status, 'succeeded'),
+            not(eq(stripePayments.paymentType, 'pay_difference')),
+            gte(stripePayments.createdAt, firstDayOfMonth),
+            lt(stripePayments.createdAt, firstDayOfNextMonth)
+          )
+        );
+      const stripeRevenue = parseFloat(stripeRevenueRow?.total ?? '0') || 0;
+
+      const [bookingRevenueRow] = await db
+        .select({
+          total: sql<string>`coalesce(sum(${bookings.totalPrice}), 0)`,
+        })
+        .from(bookings)
+        .where(
+          and(
+            or(eq(bookings.status, 'confirmed'), eq(bookings.status, 'completed')),
+            gte(bookings.bookingDate, defaultFrom),
+            lte(bookings.bookingDate, defaultTo)
+          )
+        );
+      const bookingRevenue = parseFloat(bookingRevenueRow?.total ?? '0') || 0;
+      const revenueCurrentMonthGbp = stripeRevenue + bookingRevenue;
+
       res.status(200).json({
         success: true,
         data: {
           practitionerCount,
           adHocCount: membershipCounts?.adHocCount || 0,
           permanentCount: membershipCounts?.permanentCount || 0,
+          occupancy: {
+            fromDate,
+            toDate,
+            totalSlotHours,
+            bookedHours: Math.round(bookedHours * 100) / 100,
+            occupancyPercent,
+          },
+          revenueCurrentMonthGbp: Math.round(revenueCurrentMonthGbp * 100) / 100,
         },
       });
     } catch (error: unknown) {
