@@ -258,8 +258,8 @@ export class BookingController {
         type
       );
       if ('paymentRequired' in result && result.paymentRequired) {
-        res.status(200).json({
-          success: true,
+        res.status(402).json({
+          success: false,
           paymentRequired: true,
           clientSecret: result.clientSecret,
           paymentIntentId: result.paymentIntentId,

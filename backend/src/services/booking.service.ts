@@ -747,8 +747,10 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       );
     }
 
-    const creditUsed = parseFloat(String(booking.creditUsed ?? 0));
-    const refundAmount = creditUsed > 0 ? creditUsed : parseFloat(booking.totalPrice.toString());
+    const refundAmount =
+      booking.creditUsed === null
+        ? parseFloat(booking.totalPrice.toString())
+        : parseFloat(String(booking.creditUsed ?? 0));
     await tx
       .update(bookings)
       .set({
@@ -977,8 +979,6 @@ export async function updateBooking(
       60;
     const pricePerHour = durationHours > 0 ? totalPrice / durationHours : totalPrice;
 
-    const oldTotalPrice = parseFloat(booking.totalPrice.toString());
-    const oldDurationHours = timeToHours(endTimeStr) - timeToHours(startTimeStr);
     const oldCreditUsed = parseFloat(String(booking.creditUsed ?? 0));
     const oldVoucherHoursUsed = parseFloat(String(booking.voucherHoursUsed ?? 0));
 
@@ -1007,51 +1007,6 @@ export async function updateBooking(
         : Math.round((totalPriceCents * (durationHours - newVoucherHoursToUse)) / durationHours) /
           100;
 
-    const isLegacy =
-      oldCreditUsed === 0 && oldVoucherHoursUsed === 0 && oldTotalPrice > 0;
-
-    if (isLegacy) {
-      const [by, bmo] = newDate.split('-').map(Number);
-      const lastDay = new Date(Date.UTC(by, bmo, 0));
-      const legacyExpiry = lastDay.toISOString().split('T')[0];
-      await CreditTransactionService.grantCreditsWithinTransaction(
-        tx,
-        userId,
-        oldTotalPrice,
-        legacyExpiry,
-        'manual',
-        undefined,
-        'Refund for booking update (legacy)'
-      );
-      const releaseHours = oldDurationHours;
-      if (releaseHours > 0) {
-        const rowsWithUsed = await tx
-          .select()
-          .from(freeBookingVouchers)
-          .where(
-            and(
-              eq(freeBookingVouchers.userId, userId),
-              gt(freeBookingVouchers.hoursUsed, '0')
-            )
-          )
-          .orderBy(asc(freeBookingVouchers.expiryDate));
-        let remainingToRelease = releaseHours;
-        for (const v of rowsWithUsed) {
-          if (remainingToRelease <= 0) break;
-          const used = parseFloat(v.hoursUsed.toString());
-          const release = Math.min(used, remainingToRelease);
-          await tx
-            .update(freeBookingVouchers)
-            .set({
-              hoursUsed: (used - release).toFixed(2),
-              updatedAt: new Date(),
-            })
-            .where(eq(freeBookingVouchers.id, v.id));
-          remainingToRelease -= release;
-        }
-      }
-    }
-
     const creditDelta = newCreditNeeded - oldCreditUsed;
     const voucherHoursDelta = newVoucherHoursToUse - oldVoucherHoursUsed;
 
@@ -1076,19 +1031,7 @@ export async function updateBooking(
     }
 
     if (voucherHoursDelta > 0) {
-      const voucherRowsForDeduct = isLegacy
-        ? await tx
-            .select()
-            .from(freeBookingVouchers)
-            .where(
-              and(
-                eq(freeBookingVouchers.userId, userId),
-                gte(freeBookingVouchers.expiryDate, todayStr)
-              )
-            )
-            .orderBy(asc(freeBookingVouchers.expiryDate))
-        : voucherRows;
-      const remainingForDeduct = voucherRowsForDeduct.reduce((sum, v) => {
+      const remainingForDeduct = voucherRows.reduce((sum, v) => {
         const used = parseFloat(v.hoursUsed.toString());
         const allocated = parseFloat(v.hoursAllocated.toString());
         return sum + Math.max(0, allocated - used);

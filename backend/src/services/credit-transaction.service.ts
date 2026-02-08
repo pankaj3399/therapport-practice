@@ -78,6 +78,29 @@ export async function grantCredits(
 }
 
 /**
+ * Returns true if the user already has a credit transaction with the given sourceType and sourceId.
+ * Used to avoid duplicate grants for the same Stripe payment (e.g. webhook retries).
+ */
+export async function hasCreditForSourceId(
+  userId: string,
+  sourceType: CreditSourceType,
+  sourceId: string
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: creditTransactions.id })
+    .from(creditTransactions)
+    .where(
+      and(
+        eq(creditTransactions.userId, userId),
+        eq(creditTransactions.sourceType, sourceType),
+        eq(creditTransactions.sourceId, sourceId)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Grant credits within an existing transaction. Caller must run inside db.transaction.
  */
 export async function grantCreditsWithinTransaction(
