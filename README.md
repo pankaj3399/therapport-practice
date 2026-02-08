@@ -114,4 +114,6 @@ npm run dev
 
 ## License
 
-Proprietary - Therapport Limited
+Proprietary - Therapport Limited.
+
+_(Workflow test: small README edit.)_
