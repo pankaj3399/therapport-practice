@@ -169,6 +169,53 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               });
             }
           }
+        } else if (type === 'pay_the_difference_update' && userId && paymentIntent.metadata?.bookingId) {
+          const bookingId = paymentIntent.metadata.bookingId;
+          const roomId = paymentIntent.metadata.roomId;
+          const bookingDate = paymentIntent.metadata.bookingDate;
+          const startTime = paymentIntent.metadata.startTime;
+          const endTime = paymentIntent.metadata.endTime;
+          const amountReceived = paymentIntent.amount_received;
+          if (amountReceived == null) {
+            logger.warn('Pay-the-difference-update metadata incomplete', {
+              eventId: event.id,
+              userId,
+              bookingId,
+            });
+          } else {
+            const amountGBP = amountReceived / 100;
+            const d = new Date();
+            const y = d.getUTCFullYear();
+            const m = d.getUTCMonth();
+            const lastDay = new Date(Date.UTC(y, m + 1, 0));
+            const expiryDate = lastDay.toISOString().split('T')[0];
+            await CreditTransactionService.grantCredits(
+              userId,
+              amountGBP,
+              expiryDate,
+              'pay_difference',
+              undefined,
+              'Pay the difference for booking update'
+            );
+            const updates: Parameters<typeof BookingService.updateBooking>[3] = {};
+            if (typeof roomId === 'string') updates.roomId = roomId;
+            if (typeof bookingDate === 'string') updates.bookingDate = bookingDate;
+            if (typeof startTime === 'string') updates.startTime = startTime;
+            if (typeof endTime === 'string') updates.endTime = endTime;
+            const hasUpdates =
+              updates.roomId != null ||
+              updates.bookingDate != null ||
+              updates.startTime != null ||
+              updates.endTime != null;
+            if (hasUpdates) {
+              await BookingService.updateBooking(bookingId, userId, false, updates);
+              logger.info('Pay-the-difference booking update completed', {
+                eventId: event.id,
+                userId,
+                bookingId,
+              });
+            }
+          }
         } else {
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
         }

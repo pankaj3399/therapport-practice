@@ -120,6 +120,8 @@ export const bookings = pgTable('bookings', {
   endTime: time('end_time').notNull(),
   pricePerHour: decimal('price_per_hour', { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal('total_price', { precision: 10, scale: 2 }).notNull(),
+  creditUsed: decimal('credit_used', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  voucherHoursUsed: decimal('voucher_hours_used', { precision: 10, scale: 2 }).notNull().default('0.00'),
   status: bookingStatusEnum('status').notNull().default('confirmed'),
   bookingType: bookingTypeEnum('booking_type').notNull(),
   cancelledAt: timestamp('cancelled_at'),

@@ -69,7 +69,14 @@
       "idx": 9,
       "version": "5",
       "when": 1770576100082,
-      "tag": "0009_concerned_lilith",
+      "tag": "0009_drop_stripe_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1770600000000,
+      "tag": "0010_booking_credit_voucher_used",
       "breakpoints": true
     }
   ]

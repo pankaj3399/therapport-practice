@@ -320,12 +320,22 @@ export class BookingController {
         return;
       }
       const isAdmin = req.user!.role === 'admin';
-      await BookingService.updateBooking(id, req.user!.id, isAdmin, {
+      const result = await BookingService.updateBooking(id, req.user!.id, isAdmin, {
         roomId,
         bookingDate,
         startTime,
         endTime,
       });
+      if (result && 'paymentRequired' in result && result.paymentRequired) {
+        res.status(402).json({
+          success: false,
+          paymentRequired: true,
+          clientSecret: result.clientSecret,
+          paymentIntentId: result.paymentIntentId,
+          amountPence: result.amountPence,
+        });
+        return;
+      }
       res.status(200).json({ success: true, message: 'Booking updated' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update booking';
