@@ -306,6 +306,16 @@ export const PractitionerManagement: React.FC = () => {
         }
     };
 
+    const handleReferenceUploaded = useCallback(async () => {
+        if (!selectedPractitioner) return;
+        try {
+            const res = await adminApi.getFullPractitioner(selectedPractitioner.id);
+            if (res.data.success && res.data.data) setSelectedPractitioner(res.data.data);
+        } catch {
+            // ignore
+        }
+    }, [selectedPractitioner?.id]);
+
     const handleAllocateVoucher = async (data: { hoursAllocated: number; expiryDate: string; reason?: string }) => {
         if (!selectedPractitioner) return;
         try {
@@ -557,6 +567,7 @@ export const PractitionerManagement: React.FC = () => {
                                                 onExecutorChange={setClinicalExecutorForm}
                                                 onSaveExecutor={handleSaveClinicalExecutor}
                                                 onUpdateExpiry={handleUpdateExpiry}
+                                                onReferenceUploaded={handleReferenceUploaded}
                                                 practitionerId={selectedPractitioner.id}
                                             />
                                         </TabsContent>

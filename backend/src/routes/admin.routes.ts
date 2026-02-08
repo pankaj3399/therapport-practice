@@ -98,6 +98,20 @@ router.delete(
   adminController.deletePractitioner.bind(adminController)
 );
 
+// Reference document (one per practitioner, replace on re-upload)
+router.post(
+  '/practitioners/:userId/documents/reference/upload-url',
+  authenticate,
+  requireRole('admin'),
+  adminController.getReferenceUploadUrl.bind(adminController)
+);
+router.put(
+  '/practitioners/:userId/documents/reference/confirm',
+  authenticate,
+  requireRole('admin'),
+  adminController.confirmReferenceUpload.bind(adminController)
+);
+
 // Update document expiry date
 router.put(
   '/practitioners/:userId/documents/:documentId/expiry',

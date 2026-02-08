@@ -669,6 +669,23 @@ export const adminApi = {
       expiryDate,
     });
   },
+
+  getReferenceUploadUrl: (userId: string, data: { filename: string; fileType: string; fileSize: number }) => {
+    return api.post<ApiResponse<{ presignedUrl: string; filePath: string; oldDocumentId?: string }>>(
+      `/admin/practitioners/${userId}/documents/reference/upload-url`,
+      data
+    );
+  },
+
+  confirmReferenceUpload: (
+    userId: string,
+    data: { filePath: string; fileName: string; oldDocumentId?: string }
+  ) => {
+    return api.put<ApiResponse<{ id: string; fileName: string; documentUrl: string }>>(
+      `/admin/practitioners/${userId}/documents/reference/confirm`,
+      data
+    );
+  },
 };
 
 export default api;

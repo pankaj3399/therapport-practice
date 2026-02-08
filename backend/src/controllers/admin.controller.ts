@@ -22,6 +22,8 @@ import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
 import { ReminderService } from '../services/reminder.service';
+import { HeadObjectCommand } from '@aws-sdk/client-s3';
+import { r2Client, R2_BUCKET_NAME } from '../config/r2';
 import { calculateExpiryStatus } from '../utils/date.util';
 import * as CreditService from '../services/credit.service';
 import * as VoucherService from '../services/voucher.service';
@@ -53,6 +55,18 @@ const updateClinicalExecutorSchema = z.object({
 
 const updateDocumentExpirySchema = z.object({
   expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expiry date must be in YYYY-MM-DD format').nullable().optional(),
+});
+
+const referenceUploadUrlSchema = z.object({
+  filename: z.string().min(1),
+  fileType: z.string().min(1),
+  fileSize: z.number().positive(),
+});
+
+const referenceConfirmSchema = z.object({
+  filePath: z.string().min(1),
+  fileName: z.string().min(1),
+  oldDocumentId: z.string().uuid().optional(),
 });
 
 /** Operating hours 08:00–22:00 = 14h per room per day for occupancy capacity. */
@@ -986,9 +1000,10 @@ export class AdminController {
       // Use UTC YYYY-MM-DD for comparison to match "start of day" logic consistently
       const dateNow = new Date().toISOString().split('T')[0];
 
-      // Aliases for joining documents twice
+      // Aliases for joining documents
       const insuranceDocs = aliasedTable(documents, 'insurance_docs');
       const registrationDocs = aliasedTable(documents, 'registration_docs');
+      const referenceDocs = aliasedTable(documents, 'reference_docs');
 
       // Common Where Clause Conditions
       const missingInsurance = or(
@@ -1006,6 +1021,8 @@ export class AdminController {
         )
       );
 
+      const missingReference = isNull(referenceDocs.id);
+
       // Removed redundant isNull checks on non-nullable columns (name, email, phone)
       const missingExecutor = and(
         marketingAddonRequired,
@@ -1015,7 +1032,7 @@ export class AdminController {
       // We want users who have ANY of these missing items
       const whereClause = and(
         eq(users.role, 'practitioner'),
-        or(missingInsurance, missingRegistration, missingExecutor)
+        or(missingInsurance, missingRegistration, missingReference, missingExecutor)
       );
 
       // 1. Get Total Count
@@ -1025,6 +1042,7 @@ export class AdminController {
         .leftJoin(memberships, eq(memberships.userId, users.id))
         .leftJoin(insuranceDocs, and(eq(insuranceDocs.userId, users.id), eq(insuranceDocs.documentType, 'insurance')))
         .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
+        .leftJoin(referenceDocs, and(eq(referenceDocs.userId, users.id), eq(referenceDocs.documentType, 'reference')))
         .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
         .where(whereClause);
 
@@ -1038,12 +1056,14 @@ export class AdminController {
           membership: memberships,
           insurance: insuranceDocs,
           registration: registrationDocs,
+          reference: referenceDocs,
           executor: clinicalExecutors,
         })
         .from(users)
         .leftJoin(memberships, eq(memberships.userId, users.id))
         .leftJoin(insuranceDocs, and(eq(insuranceDocs.userId, users.id), eq(insuranceDocs.documentType, 'insurance')))
         .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
+        .leftJoin(referenceDocs, and(eq(referenceDocs.userId, users.id), eq(referenceDocs.documentType, 'reference')))
         .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
         .where(whereClause)
         .orderBy(users.lastName, users.firstName) // Deterministic ordering
@@ -1067,6 +1087,11 @@ export class AdminController {
           missing.push('Insurance (Missing)');
         } else if (isExpired(row.insurance.expiryDate)) {
           missing.push('Insurance (Expired)');
+        }
+
+        // Reference (one per practitioner)
+        if (!row.reference) {
+          missing.push('References (Missing)');
         }
 
         // Marketing Addon Checks
@@ -1114,6 +1139,144 @@ export class AdminController {
           url: req.originalUrl,
         }
       );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** POST /admin/practitioners/:userId/documents/reference/upload-url */
+  async getReferenceUploadUrl(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      if (!R2_BUCKET_NAME) {
+        res.status(500).json({ success: false, error: 'File storage service is not configured' });
+        return;
+      }
+      const data = referenceUploadUrlSchema.parse(req.body);
+      const validation = FileService.validateDocumentFile({
+        filename: data.filename,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+      });
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error });
+      }
+      const currentDocument = await db.query.documents.findFirst({
+        where: and(eq(documents.userId, userId), eq(documents.documentType, 'reference')),
+        orderBy: (documents, { desc }) => [desc(documents.createdAt)],
+      });
+      const filePath = FileService.generateFilePath(userId, 'documents', data.filename);
+      const { presignedUrl, filePath: generatedPath } = await FileService.generatePresignedUploadUrl(
+        filePath,
+        data.fileType
+      );
+      res.status(200).json({
+        success: true,
+        data: {
+          presignedUrl,
+          filePath: generatedPath,
+          oldDocumentId: currentDocument?.id,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to get reference upload URL', error, { userId: req.user?.id, targetUserId: req.params.userId });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** PUT /admin/practitioners/:userId/documents/reference/confirm */
+  async confirmReferenceUpload(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      const data = referenceConfirmSchema.parse(req.body);
+      try {
+        const headCommand = new HeadObjectCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: data.filePath,
+        });
+        await r2Client.send(headCommand);
+      } catch (err: unknown) {
+        const errObj = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+        if (errObj.name === 'NotFound' || errObj.$metadata?.httpStatusCode === 404) {
+          return res.status(400).json({ success: false, error: 'Uploaded file not found. Please try uploading again.' });
+        }
+        logger.error('R2 error verifying reference file', err, { filePath: data.filePath });
+        return res.status(500).json({ success: false, error: 'Failed to verify uploaded file' });
+      }
+      let oldDocument: typeof documents.$inferSelect | null = null;
+      if (data.oldDocumentId) {
+        const found = await db.query.documents.findFirst({
+          where: and(
+            eq(documents.id, data.oldDocumentId),
+            eq(documents.userId, userId),
+            eq(documents.documentType, 'reference')
+          ),
+        });
+        oldDocument = found || null;
+      }
+      const [newDocument] = await db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(documents)
+          .values({
+            userId,
+            documentType: 'reference',
+            fileUrl: data.filePath,
+            fileName: data.fileName,
+            expiryDate: null,
+          })
+          .returning();
+        if (data.oldDocumentId) {
+          await tx
+            .delete(documents)
+            .where(and(
+              eq(documents.id, data.oldDocumentId),
+              eq(documents.userId, userId),
+              eq(documents.documentType, 'reference')
+            ));
+        }
+        return [inserted];
+      });
+      if (oldDocument) {
+        try {
+          await FileService.deleteFile(FileService.extractFilePath(oldDocument.fileUrl));
+        } catch (err) {
+          logger.error('Failed to delete old reference file from R2', err, { oldDocumentId: data.oldDocumentId });
+        }
+      }
+      const documentUrl = await FileService.generatePresignedGetUrl(newDocument.fileUrl, 'documents');
+      res.status(200).json({
+        success: true,
+        data: {
+          id: newDocument.id,
+          fileName: newDocument.fileName,
+          documentUrl,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to confirm reference upload', error, { userId: req.user?.id, targetUserId: req.params.userId });
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }

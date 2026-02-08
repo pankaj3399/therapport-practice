@@ -11,7 +11,7 @@ export interface NextOfKin {
 
 export interface PractitionerDocument {
   id: string;
-  documentType: 'insurance' | 'clinical_registration';
+  documentType: 'insurance' | 'clinical_registration' | 'reference';
   fileName: string;
   fileUrl: string;
   expiryDate: string | null;

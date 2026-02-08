@@ -45,5 +45,6 @@ export interface ClinicalTabProps {
     onExecutorChange: (data: { name: string; email: string; phone: string }) => void;
     onSaveExecutor: () => void;
     onUpdateExpiry: (documentId: string, expiryDate: string | null) => Promise<void>;
+    onReferenceUploaded?: () => void;
     practitionerId: string;
 }
