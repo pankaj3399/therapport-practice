@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { bookings, rooms, locations, memberships, users, freeBookingVouchers } from '../db/schema';
-import { eq, and, gte, lte, asc, inArray } from 'drizzle-orm';
+import { eq, and, gte, lte, asc, inArray, not } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { todayUtcString, formatTimeForEmail } from '../utils/date.util';
 import { fromZonedTime } from 'date-fns-tz';
@@ -131,6 +131,34 @@ export async function checkAvailability(
 }
 
 /**
+ * Check availability excluding a booking id (for update).
+ */
+export async function checkAvailabilityExcluding(
+  roomId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeBookingId: string
+): Promise<boolean> {
+  const start = toTimeString(startTime);
+  const end = toTimeString(endTime);
+  const overlapping = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.roomId, roomId),
+        eq(bookings.bookingDate, date),
+        eq(bookings.status, 'confirmed'),
+        not(eq(bookings.id, excludeBookingId)),
+        sql`${bookings.startTime} < ${end}::time AND ${bookings.endTime} > ${start}::time`
+      )
+    )
+    .limit(1);
+  return overlapping.length === 0;
+}
+
+/**
  * Fetch all confirmed bookings for a room on a date (for availability computation).
  */
 async function getConfirmedBookingsForRoomDate(
@@ -224,6 +252,7 @@ export interface DayCalendarRoom {
 }
 
 export interface DayCalendarBooking {
+  id?: string;
   roomId: string;
   startTime: string;
   endTime: string;
@@ -232,6 +261,7 @@ export interface DayCalendarBooking {
 
 function mapRowToDayCalendarBooking(
   row: {
+    id?: string;
     roomId: string;
     startTime: string | Date;
     endTime: string | Date;
@@ -245,6 +275,7 @@ function mapRowToDayCalendarBooking(
     startTime: formatTimeHHMM(row.startTime),
     endTime: formatTimeHHMM(row.endTime),
   };
+  if (row.id) booking.id = row.id;
   if (includeBookerNames && row.firstName !== undefined && row.lastName !== undefined) {
     booking.bookerName =
       [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || undefined;
@@ -276,6 +307,7 @@ export async function getDayCalendar(
   if (includeBookerNames) {
     const rows = await db
       .select({
+        id: bookings.id,
         roomId: bookings.roomId,
         startTime: bookings.startTime,
         endTime: bookings.endTime,
@@ -715,6 +747,157 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       })
     );
   }
+}
+
+/**
+ * Get booking owner userId by booking id (for admin cancel).
+ */
+export async function getBookingOwnerId(bookingId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ userId: bookings.userId })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+export type UpdateBookingParams = {
+  roomId?: string;
+  bookingDate?: string;
+  startTime?: string;
+  endTime?: string;
+};
+
+/**
+ * Update booking date/time/room. Caller must be owner or admin. 24h before start required.
+ * Recalculates price from new room/date/times.
+ */
+export async function updateBooking(
+  bookingId: string,
+  requesterUserId: string,
+  isAdmin: boolean,
+  updates: UpdateBookingParams
+): Promise<void> {
+  const [row] = await db
+    .select({
+      booking: bookings,
+      roomName: rooms.name,
+      locationName: locations.name,
+    })
+    .from(bookings)
+    .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+    .innerJoin(locations, eq(rooms.locationId, locations.id))
+    .where(
+      isAdmin ? eq(bookings.id, bookingId) : and(eq(bookings.id, bookingId), eq(bookings.userId, requesterUserId))
+    )
+    .limit(1);
+
+  if (!row) throw new BookingNotFoundError('Booking not found');
+  const booking = row.booking;
+  if (booking.status === 'cancelled')
+    throw new BookingValidationError('Booking is already cancelled');
+
+  const bookingDateStr = String(booking.bookingDate);
+  const startTimeStr =
+    typeof booking.startTime === 'string'
+      ? booking.startTime.slice(0, 5)
+      : `${(booking.startTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.startTime as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+  const [y, mo, d] = bookingDateStr.split('-').map(Number);
+  const [hh, mm] = startTimeStr.split(':').map(Number);
+  const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
+  const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
+  const now = new Date();
+  const minChangeBy = bookingStartUtc.getTime() - 24 * 60 * 60 * 1000;
+  if (now.getTime() > minChangeBy) {
+    throw new BookingValidationError(
+      'Changes with less than 24 hours before start are not permitted'
+    );
+  }
+
+  const newRoomId = updates.roomId ?? booking.roomId;
+  const newDate = updates.bookingDate ?? bookingDateStr;
+  const newStartTime = updates.startTime ?? startTimeStr;
+  const newEndTime =
+    updates.endTime ??
+    (typeof booking.endTime === 'string'
+      ? booking.endTime.slice(0, 5)
+      : `${(booking.endTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.endTime as Date).getUTCMinutes().toString().padStart(2, '0')}`);
+
+  const changed =
+    newRoomId !== booking.roomId ||
+    newDate !== bookingDateStr ||
+    newStartTime !== startTimeStr ||
+    newEndTime !==
+      (typeof booking.endTime === 'string'
+        ? booking.endTime.slice(0, 5)
+        : `${(booking.endTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.endTime as Date).getUTCMinutes().toString().padStart(2, '0')}`);
+
+  if (changed) {
+    const today = todayUtcString();
+    if (newDate < today) throw new BookingValidationError('Booking date must be today or in the future');
+    const [by, bmo, bd] = newDate.split('-').map(Number);
+    const startPart = newStartTime.trim().slice(0, 5);
+    const [nHH, nMM] = startPart.split(':').map(Number);
+    const newStartLocal = new Date(by, bmo - 1, bd, nHH, nMM, 0);
+    const newStartUtc = fromZonedTime(newStartLocal, 'Europe/London');
+    if (newStartUtc.getTime() <= Date.now()) {
+      throw new BookingValidationError('Cannot move booking to a time that has already passed');
+    }
+    const [ty, tm, td] = today.split('-').map(Number);
+    const maxDate = new Date(Date.UTC(ty, tm - 1, td));
+    maxDate.setUTCMonth(maxDate.getUTCMonth() + 1);
+    const maxDateStr = maxDate.toISOString().split('T')[0];
+    if (newDate > maxDateStr) {
+      throw new BookingValidationError('Bookings can only be up to 1 month in advance');
+    }
+    const { locationName } = await getRoomWithLocation(newRoomId);
+    try {
+      PricingService.calculateTotalPrice(
+        locationName,
+        new Date(newDate + 'T12:00:00Z'),
+        newStartTime,
+        newEndTime
+      );
+    } catch (e) {
+      throw new BookingValidationError(e instanceof Error ? e.message : 'Invalid time window');
+    }
+    const available = await checkAvailabilityExcluding(
+      newRoomId,
+      newDate,
+      newStartTime,
+      newEndTime,
+      bookingId
+    );
+    if (!available) throw new BookingValidationError('Time slot is not available');
+  }
+
+  const { locationName } = await getRoomWithLocation(newRoomId);
+  const dateObj = new Date(newDate + 'T12:00:00Z');
+  const totalPrice = PricingService.calculateTotalPrice(
+    locationName,
+    dateObj,
+    newStartTime,
+    newEndTime
+  );
+  const durationHours =
+    (parseInt(newEndTime.slice(0, 2), 10) * 60 +
+      parseInt(newEndTime.slice(3, 5), 10) -
+      (parseInt(newStartTime.slice(0, 2), 10) * 60 + parseInt(newStartTime.slice(3, 5), 10))) /
+    60;
+  const pricePerHour = durationHours > 0 ? totalPrice / durationHours : totalPrice;
+
+  await db
+    .update(bookings)
+    .set({
+      roomId: newRoomId,
+      bookingDate: newDate,
+      startTime: newStartTime,
+      endTime: newEndTime,
+      totalPrice: totalPrice.toFixed(2),
+      pricePerHour: pricePerHour.toFixed(2),
+      updatedAt: new Date(),
+    })
+    .where(eq(bookings.id, bookingId));
 }
 
 /**

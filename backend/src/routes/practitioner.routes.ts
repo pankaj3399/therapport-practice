@@ -28,6 +28,11 @@ router.get(
 router.get('/bookings/quote', authenticate, bookingController.getQuote.bind(bookingController));
 router.get('/bookings/:id', authenticate, bookingController.getBookingById.bind(bookingController));
 router.post('/bookings', authenticate, bookingController.createBooking.bind(bookingController));
+router.patch(
+  '/bookings/:id',
+  authenticate,
+  bookingController.updateBooking.bind(bookingController)
+);
 router.delete(
   '/bookings/:id',
   authenticate,

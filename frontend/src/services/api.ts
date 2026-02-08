@@ -260,6 +260,7 @@ export const practitionerApi = {
       success: boolean;
       rooms: Array<{ id: string; name: string }>;
       bookings: Array<{
+        id?: string;
         roomId: string;
         startTime: string;
         endTime: string;
@@ -295,8 +296,16 @@ export const practitionerApi = {
     startTime: string;
     endTime: string;
     bookingType: 'permanent_recurring' | 'ad_hoc' | 'free' | 'internal';
+    targetUserId?: string;
   }) => {
     return api.post<CreateBookingResponse>('/practitioner/bookings', data);
+  },
+
+  updateBooking: (
+    id: string,
+    data: { roomId?: string; bookingDate?: string; startTime?: string; endTime?: string }
+  ) => {
+    return api.patch<ApiResponse<{ message?: string }>>(`/practitioner/bookings/${id}`, data);
   },
 
   cancelBooking: (id: string) => {

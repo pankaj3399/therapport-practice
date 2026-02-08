@@ -235,8 +235,20 @@ export class BookingController {
         });
         return;
       }
+      const targetUserId =
+        (type === 'free' || type === 'internal') && req.user!.role === 'admin' && req.body.targetUserId
+          ? req.body.targetUserId
+          : req.user!.id;
+      if (targetUserId !== req.user!.id && req.user!.role !== 'admin') {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+      if (targetUserId && !UUID_REGEX.test(String(targetUserId))) {
+        res.status(400).json({ success: false, error: 'Invalid targetUserId format' });
+        return;
+      }
       const result = await BookingService.createBooking(
-        req.user!.id,
+        targetUserId,
         roomId,
         date,
         startTime,
@@ -270,10 +282,69 @@ export class BookingController {
     }
   }
 
+  async updateBooking(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!UUID_REGEX.test(id)) {
+        res.status(400).json({ success: false, error: 'Invalid booking id' });
+        return;
+      }
+      const body = req.body as Record<string, unknown>;
+      const roomId = typeof body.roomId === 'string' ? body.roomId : undefined;
+      const bookingDate = typeof body.bookingDate === 'string' ? body.bookingDate : undefined;
+      const startTime = typeof body.startTime === 'string' ? body.startTime : undefined;
+      const endTime = typeof body.endTime === 'string' ? body.endTime : undefined;
+      if (!roomId && !bookingDate && !startTime && !endTime) {
+        res.status(400).json({
+          success: false,
+          error: 'At least one of roomId, bookingDate, startTime, endTime is required',
+        });
+        return;
+      }
+      if (bookingDate && !DATE_REGEX.test(bookingDate)) {
+        res.status(400).json({ success: false, error: 'bookingDate must be YYYY-MM-DD' });
+        return;
+      }
+      if (startTime && !TIME_REGEX.test(startTime)) {
+        res.status(400).json({ success: false, error: 'startTime must be HH:MM' });
+        return;
+      }
+      if (endTime && !TIME_REGEX.test(endTime)) {
+        res.status(400).json({ success: false, error: 'endTime must be HH:MM' });
+        return;
+      }
+      const isAdmin = req.user!.role === 'admin';
+      await BookingService.updateBooking(
+        id,
+        req.user!.id,
+        isAdmin,
+        { roomId, bookingDate, startTime, endTime }
+      );
+      res.status(200).json({ success: true, message: 'Booking updated' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update booking';
+      const status = error instanceof BookingServiceError ? error.statusCode : DEFAULT_STATUS;
+      logger.error(
+        'Failed to update booking',
+        error instanceof Error ? error : new Error(String(error)),
+        { userId: req.user?.id, bookingId: req.params.id }
+      );
+      res.status(status).json({ success: false, error: message });
+    }
+  }
+
   async cancelBooking(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      await BookingService.cancelBooking(id, req.user!.id);
+      const effectiveUserId =
+        req.user!.role === 'admin'
+          ? await BookingService.getBookingOwnerId(id)
+          : req.user!.id;
+      if (!effectiveUserId) {
+        res.status(404).json({ success: false, error: 'Booking not found' });
+        return;
+      }
+      await BookingService.cancelBooking(id, effectiveUserId);
       res.status(200).json({ success: true, message: 'Booking cancelled' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to cancel booking';

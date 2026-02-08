@@ -19,5 +19,6 @@ export const practitionerNavItems: NavItem[] = [
 export const adminNavItems: NavItem[] = [
   { name: 'Dashboard', icon: 'dashboard', path: '/admin', implemented: true },
   { name: 'Practitioners', icon: 'people', path: '/admin/practitioners', implemented: true },
+  { name: 'Calendar', icon: 'calendar_month', path: '/admin/calendar', implemented: true },
   { name: 'Profile', icon: 'person', path: '/admin/profile', implemented: true },
 ];

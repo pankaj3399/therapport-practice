@@ -14,6 +14,7 @@ import { Subscription } from './pages/Subscription';
 import { Profile } from './pages/Profile';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { PractitionerManagement } from './pages/admin/PractitionerManagement';
+import { AdminCalendar } from './pages/admin/AdminCalendar';
 import { AdminProfile } from './pages/admin/AdminProfile';
 import './styles/globals.css';
 
@@ -74,6 +75,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole="admin">
                   <PractitionerManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/calendar"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminCalendar />
                 </ProtectedRoute>
               }
             />
