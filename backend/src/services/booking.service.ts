@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { bookings, rooms, locations, memberships, users, freeBookingVouchers } from '../db/schema';
-import { eq, and, gte, lte, asc, inArray, not } from 'drizzle-orm';
+import { eq, and, gte, gt, lte, asc, inArray, not } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { todayUtcString, formatTimeForEmail } from '../utils/date.util';
 import { fromZonedTime } from 'date-fns-tz';
@@ -980,6 +980,75 @@ export async function updateBooking(
         (parseInt(startTimeDb.slice(0, 2), 10) * 60 + parseInt(startTimeDb.slice(3, 5), 10))) /
       60;
     const pricePerHour = durationHours > 0 ? totalPrice / durationHours : totalPrice;
+
+    const oldDurationHours = timeToHours(endTimeStr) - timeToHours(startTimeStr);
+    const voucherHoursDelta = durationHours - oldDurationHours;
+
+    if (voucherHoursDelta > 0) {
+      const todayStr = todayUtcString();
+      const voucherRows = await tx
+        .select()
+        .from(freeBookingVouchers)
+        .where(
+          and(
+            eq(freeBookingVouchers.userId, userId),
+            gte(freeBookingVouchers.expiryDate, todayStr)
+          )
+        )
+        .orderBy(asc(freeBookingVouchers.expiryDate));
+      const remainingVoucherHours = voucherRows.reduce((sum, v) => {
+        const used = parseFloat(v.hoursUsed.toString());
+        const allocated = parseFloat(v.hoursAllocated.toString());
+        return sum + Math.max(0, allocated - used);
+      }, 0);
+      if (remainingVoucherHours < voucherHoursDelta) {
+        throw new BookingValidationError(
+          'Insufficient voucher hours for this update. The new duration requires more voucher hours than you have available.'
+        );
+      }
+      let remainingToDeduct = voucherHoursDelta;
+      for (const v of voucherRows) {
+        if (remainingToDeduct <= 0) break;
+        const used = parseFloat(v.hoursUsed.toString());
+        const allocated = parseFloat(v.hoursAllocated.toString());
+        const remaining = allocated - used;
+        const deduct = Math.min(remaining, remainingToDeduct);
+        await tx
+          .update(freeBookingVouchers)
+          .set({
+            hoursUsed: (used + deduct).toFixed(2),
+            updatedAt: new Date(),
+          })
+          .where(eq(freeBookingVouchers.id, v.id));
+        remainingToDeduct -= deduct;
+      }
+    } else if (voucherHoursDelta < 0) {
+      const releaseHours = Math.abs(voucherHoursDelta);
+      const voucherRows = await tx
+        .select()
+        .from(freeBookingVouchers)
+        .where(
+          and(
+            eq(freeBookingVouchers.userId, userId),
+            gt(freeBookingVouchers.hoursUsed, '0')
+          )
+        )
+        .orderBy(asc(freeBookingVouchers.expiryDate));
+      let remainingToRelease = releaseHours;
+      for (const v of voucherRows) {
+        if (remainingToRelease <= 0) break;
+        const used = parseFloat(v.hoursUsed.toString());
+        const release = Math.min(used, remainingToRelease);
+        await tx
+          .update(freeBookingVouchers)
+          .set({
+            hoursUsed: (used - release).toFixed(2),
+            updatedAt: new Date(),
+          })
+          .where(eq(freeBookingVouchers.id, v.id));
+        remainingToRelease -= release;
+      }
+    }
 
     await tx
       .update(bookings)
