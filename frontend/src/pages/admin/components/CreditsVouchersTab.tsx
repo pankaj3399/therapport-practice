@@ -10,40 +10,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-
-export interface CreditSummary {
-  currentMonth: {
-    monthYear: string;
-    totalGranted: number;
-    totalUsed: number;
-    remainingCredit: number;
-  } | null;
-  nextMonth: { monthYear: string; nextMonthAllocation: number } | null;
-  byMonth?: Array<{ month: string; remainingCredit: number }>;
-  membershipType: 'permanent' | 'ad_hoc' | null;
-}
-
-export interface VoucherSummary {
-  totalHoursAllocated: number;
-  totalHoursUsed: number;
-  remainingHours: number;
-  earliestExpiry: string | null;
-  vouchers: Array<{
-    id: string;
-    hoursAllocated: number;
-    hoursUsed: number;
-    remainingHours: number;
-    expiryDate: string;
-    reason: string | null;
-  }>;
-}
+import type { CreditSummary, VoucherSummary } from '@/services/api';
 
 export interface CreditsVouchersTabProps {
   credit: CreditSummary | null;
   voucher: VoucherSummary | null;
   loading: boolean;
   allocating: boolean;
-  onAllocate: (data: { hoursAllocated: number; expiryDate: string; reason?: string }) => Promise<void>;
+  onAllocate: (data: {
+    hoursAllocated: number;
+    expiryDate: string;
+    reason?: string;
+  }) => Promise<void>;
 }
 
 export const CreditsVouchersTab: React.FC<CreditsVouchersTabProps> = ({
@@ -83,7 +61,9 @@ export const CreditsVouchersTab: React.FC<CreditsVouchersTabProps> = ({
                 £{credit.currentMonth.remainingCredit.toFixed(2)}
               </div>
             ) : credit?.membershipType === 'permanent' ? (
-              <p className="text-slate-500 text-sm">Permanent members are billed outside the app.</p>
+              <p className="text-slate-500 text-sm">
+                Permanent members are billed outside the app.
+              </p>
             ) : (
               <p className="text-slate-500 text-sm">No membership or ad-hoc credit.</p>
             )}

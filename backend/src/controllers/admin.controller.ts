@@ -15,9 +15,8 @@ import {
   passwordResets,
   emailChangeRequests,
   rooms,
-  stripePayments,
 } from '../db/schema';
-import { eq, and, or, not, ilike, aliasedTable, isNull, sql, SQL, count, gte, lte, lt } from 'drizzle-orm';
+import { eq, and, or, not, ilike, aliasedTable, isNull, sql, SQL, count, gte, lte, lt, desc } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
@@ -25,8 +24,9 @@ import { ReminderService } from '../services/reminder.service';
 import { HeadObjectCommand } from '@aws-sdk/client-s3';
 import { r2Client, R2_BUCKET_NAME } from '../config/r2';
 import { calculateExpiryStatus } from '../utils/date.util';
-import * as CreditService from '../services/credit.service';
-import * as VoucherService from '../services/voucher.service';
+import { CreditService } from '../services/credit.service';
+import { VoucherService } from '../services/voucher.service';
+import { getRevenueForMonthGbp } from '../services/stripe-payment.service';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
@@ -245,33 +245,23 @@ export class AdminController {
 
       let bookedHours = 0;
       for (const b of confirmedBookingsInRange) {
-        const start = String(b.startTime);
-        const end = String(b.endTime);
-        const [sh, sm] = start.split(':').map(Number);
-        const [eh, em] = end.split(':').map(Number);
+        const startTime = String(b.startTime);
+        const endTime = String(b.endTime);
+        const [sh, sm] = startTime.split(':').map(Number);
+        const [eh, em] = endTime.split(':').map(Number);
         const startMins = sh * 60 + (sm || 0);
         const endMins = eh * 60 + (em || 0);
-        bookedHours += (endMins - startMins) / 60;
+        const durationMins = (endMins - startMins + 24 * 60) % (24 * 60);
+        bookedHours += durationMins / 60;
       }
       const occupancyPercent =
         totalSlotHours > 0 ? Math.min(100, Math.round((bookedHours / totalSlotHours) * 100 * 100) / 100) : 0;
 
-      // Revenue: current month only — Stripe (succeeded) + booking total_price (confirmed/completed)
-      const firstDayOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-      const [stripeRevenueRow] = await db
-        .select({
-          total: sql<string>`coalesce(sum(${stripePayments.amount}), 0)`,
-        })
-        .from(stripePayments)
-        .where(
-          and(
-            eq(stripePayments.status, 'succeeded'),
-            not(eq(stripePayments.paymentType, 'pay_difference')),
-            gte(stripePayments.createdAt, firstDayOfMonth),
-            lt(stripePayments.createdAt, firstDayOfNextMonth)
-          )
-        );
-      const stripeRevenue = parseFloat(stripeRevenueRow?.total ?? '0') || 0;
+      // Revenue: current month only — Stripe (from API) + booking total_price (confirmed/completed)
+      const stripeRevenue = await getRevenueForMonthGbp({
+        year: now.getUTCFullYear(),
+        month: now.getUTCMonth() + 1,
+      });
 
       const [bookingRevenueRow] = await db
         .select({
@@ -498,8 +488,8 @@ export class AdminController {
         return res.status(404).json({ success: false, error: 'Practitioner not found' });
       }
       const [creditSummary, voucherSummary] = await Promise.all([
-        CreditService.CreditService.getCreditBalance(userId),
-        VoucherService.VoucherService.getRemainingFreeHours(userId),
+        CreditService.getCreditBalance(userId),
+        VoucherService.getRemainingFreeHours(userId),
       ]);
       res.status(200).json({
         success: true,
@@ -1223,18 +1213,7 @@ export class AdminController {
         logger.error('R2 error verifying reference file', err, { filePath: data.filePath });
         return res.status(500).json({ success: false, error: 'Failed to verify uploaded file' });
       }
-      let oldDocument: typeof documents.$inferSelect | null = null;
-      if (data.oldDocumentId) {
-        const found = await db.query.documents.findFirst({
-          where: and(
-            eq(documents.id, data.oldDocumentId),
-            eq(documents.userId, userId),
-            eq(documents.documentType, 'reference')
-          ),
-        });
-        oldDocument = found || null;
-      }
-      const [newDocument] = await db.transaction(async (tx) => {
+      const { newDocument, oldDocument } = await db.transaction(async (tx) => {
         const [inserted] = await tx
           .insert(documents)
           .values({
@@ -1245,22 +1224,28 @@ export class AdminController {
             expiryDate: null,
           })
           .returning();
-        if (data.oldDocumentId) {
-          await tx
-            .delete(documents)
-            .where(and(
-              eq(documents.id, data.oldDocumentId),
+        const [latest] = await tx
+          .select()
+          .from(documents)
+          .where(
+            and(
               eq(documents.userId, userId),
-              eq(documents.documentType, 'reference')
-            ));
+              eq(documents.documentType, 'reference'),
+              not(eq(documents.id, inserted.id))
+            )
+          )
+          .orderBy(desc(documents.createdAt))
+          .limit(1);
+        if (latest) {
+          await tx.delete(documents).where(eq(documents.id, latest.id));
         }
-        return [inserted];
+        return { newDocument: inserted, oldDocument: latest ?? null };
       });
       if (oldDocument) {
         try {
           await FileService.deleteFile(FileService.extractFilePath(oldDocument.fileUrl));
         } catch (err) {
-          logger.error('Failed to delete old reference file from R2', err, { oldDocumentId: data.oldDocumentId });
+          logger.error('Failed to delete old reference file from R2', err, { oldDocumentId: oldDocument.id });
         }
       }
       const documentUrl = await FileService.generatePresignedGetUrl(newDocument.fileUrl, 'documents');

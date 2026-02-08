@@ -5,6 +5,7 @@ import { users, memberships } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import * as SubscriptionService from '../services/subscription.service';
 import * as StripePaymentService from '../services/stripe-payment.service';
+import { LIST_INVOICES_MISSING_CUSTOMER_ID } from '../services/stripe-payment.service';
 import { isStripeConfigured } from '../config/stripe';
 import {
   MembershipNotFoundError,
@@ -193,22 +194,19 @@ export class SubscriptionController {
         .from(memberships)
         .where(eq(memberships.userId, userId))
         .limit(1);
-      const customerId = row?.stripeCustomerId?.trim();
-      if (!customerId) {
-        res.status(200).json({ success: true, invoices: [] });
-        return;
-      }
+      const customerId = row?.stripeCustomerId?.trim() ?? '';
       const invoices = await StripePaymentService.listInvoicesForCustomer(customerId);
       res.status(200).json({ success: true, invoices });
     } catch (error) {
-      logger.error(
-        'Failed to list invoices',
-        error instanceof Error ? error : new Error(String(error)),
-        { userId: req.user?.id }
-      );
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (err.message === LIST_INVOICES_MISSING_CUSTOMER_ID) {
+        res.status(404).json({ success: false, error: 'No billing account found' });
+        return;
+      }
+      logger.error('Failed to list invoices', err, { userId: req.user?.id });
       res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to list invoices',
+        error: err.message,
       });
     }
   }

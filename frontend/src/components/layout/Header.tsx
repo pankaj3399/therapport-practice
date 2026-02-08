@@ -94,10 +94,11 @@ export const Header: React.FC = () => {
               {user?.firstName} {user?.lastName}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {isAdmin ? 'Administrator' : 'Renter'}
+              {isAdmin ? 'Administrator' : 'Practitioner'}
             </p>
           </div>
           <button
+            type="button"
             onClick={() => {
               setMobileMenuOpen(false);
               logout();

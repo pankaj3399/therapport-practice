@@ -194,6 +194,21 @@ export interface CreditSummary {
   membershipType: 'permanent' | 'ad_hoc' | null;
 }
 
+export interface VoucherSummary {
+  totalHoursAllocated: number;
+  totalHoursUsed: number;
+  remainingHours: number;
+  earliestExpiry: string | null;
+  vouchers: Array<{
+    id: string;
+    hoursAllocated: number;
+    hoursUsed: number;
+    remainingHours: number;
+    expiryDate: string;
+    reason: string | null;
+  }>;
+}
+
 /** Discriminated union for createBooking response; narrow via success and paymentRequired. */
 export type CreateBookingResponse =
   | { success: true; booking: { id: string }; paymentRequired?: false }
@@ -602,7 +617,12 @@ export const adminApi = {
     return api.get<
       ApiResponse<{
         credit: {
-          currentMonth: { monthYear: string; totalGranted: number; totalUsed: number; remainingCredit: number } | null;
+          currentMonth: {
+            monthYear: string;
+            totalGranted: number;
+            totalUsed: number;
+            remainingCredit: number;
+          } | null;
           nextMonth: { monthYear: string; nextMonthAllocation: number } | null;
           byMonth?: Array<{ month: string; remainingCredit: number }>;
           membershipType: 'permanent' | 'ad_hoc' | null;
@@ -685,17 +705,29 @@ export const adminApi = {
     });
   },
 
-  getReferenceUploadUrl: (userId: string, data: { filename: string; fileType: string; fileSize: number }) => {
-    return api.post<ApiResponse<{ presignedUrl: string; filePath: string; oldDocumentId?: string }>>(
-      `/admin/practitioners/${userId}/documents/reference/upload-url`,
-      data
-    );
+  getReferenceUploadUrl: (
+    userId: string,
+    data: { filename: string; fileType: string; fileSize: number }
+  ) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return api.post<
+      ApiResponse<{ presignedUrl: string; filePath: string; oldDocumentId?: string }>
+    >(`/admin/practitioners/${userId}/documents/reference/upload-url`, data);
   },
 
   confirmReferenceUpload: (
     userId: string,
     data: { filePath: string; fileName: string; oldDocumentId?: string }
   ) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return api.put<ApiResponse<{ id: string; fileName: string; documentUrl: string }>>(
       `/admin/practitioners/${userId}/documents/reference/confirm`,
       data

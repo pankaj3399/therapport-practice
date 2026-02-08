@@ -36,18 +36,6 @@ export const creditSourceEnum = pgEnum('credit_source', [
   'pay_difference',
   'manual',
 ]);
-export const paymentStatusEnum = pgEnum('payment_status', [
-  'pending',
-  'succeeded',
-  'failed',
-  'canceled',
-]);
-export const paymentTypeEnum = pgEnum('payment_type', [
-  'subscription',
-  'ad_hoc_subscription',
-  'pay_difference',
-]);
-
 // Users table
 export const users = pgTable(
   'users',
@@ -196,29 +184,6 @@ export const creditTransactions = pgTable(
   })
 );
 
-// Stripe payments table (tracks payment intents and webhook events)
-export const stripePayments = pgTable(
-  'stripe_payments',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).notNull().unique(),
-    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
-    amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
-    currency: varchar('currency', { length: 3 }).notNull().default('gbp'),
-    status: paymentStatusEnum('status').notNull().default('pending'),
-    paymentType: paymentTypeEnum('payment_type').notNull(),
-    metadata: jsonb('metadata'),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
-  },
-  (table) => ({
-    userIdIdx: index('stripe_payments_user_id_idx').on(table.userId),
-  })
-);
-
 // Documents table
 export const documents = pgTable('documents', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -325,7 +290,6 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [clinicalExecutors.userId],
   }),
   creditTransactions: many(creditTransactions),
-  stripePayments: many(stripePayments),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -352,11 +316,6 @@ export const clinicalExecutorsRelations = relations(clinicalExecutors, ({ one })
 export const creditTransactionsRelations = relations(creditTransactions, ({ one }) => ({
   user: one(users, {
     fields: [creditTransactions.userId],
-    references: [users.id],
-  }),
-}));export const stripePaymentsRelations = relations(stripePayments, ({ one }) => ({
-  user: one(users, {
-    fields: [stripePayments.userId],
     references: [users.id],
   }),
 }));

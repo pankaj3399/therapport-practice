@@ -1,4 +1,5 @@
-import { getStripe } from '../config/stripe';
+import { getStripe, isStripeConfigured } from '../config/stripe';
+import { logger } from '../utils/logger.util';
 
 /**
  * Stripe payment service. Handles payment intents, customers, and subscriptions.
@@ -269,20 +270,66 @@ export interface InvoiceListItem {
   invoice_pdf: string | null;
 }
 
+/** Error message thrown when customerId is missing or empty (callers can map to e.g. "No billing account found"). */
+export const LIST_INVOICES_MISSING_CUSTOMER_ID = 'Missing or empty customerId';
+
 /**
  * List Stripe invoices for a customer. Used for practitioner Finance page (list + download from Stripe only).
+ * @throws Error with message LIST_INVOICES_MISSING_CUSTOMER_ID when customerId is missing or empty
  */
 export async function listInvoicesForCustomer(customerId: string): Promise<InvoiceListItem[]> {
-  if (!customerId?.trim()) return [];
+  if (!customerId?.trim()) {
+    logger.warn('listInvoicesForCustomer called with missing or empty customerId');
+    throw new Error(LIST_INVOICES_MISSING_CUSTOMER_ID);
+  }
   const stripe = getStripe();
-  const list = await stripe.invoices.list({ customer: customerId.trim(), limit: 100 });
-  return list.data.map((inv) => ({
-    id: inv.id,
-    number: inv.number ?? null,
-    status: inv.status ?? 'unknown',
-    amount_paid: inv.amount_paid ?? 0,
-    currency: (inv.currency ?? 'gbp').toLowerCase(),
-    created: inv.created,
-    invoice_pdf: inv.invoice_pdf ?? null,
-  }));
+  const customer = customerId.trim();
+  const results: InvoiceListItem[] = [];
+  for await (const inv of stripe.invoices.list({ customer }).autoPagingIterator()) {
+    results.push({
+      id: inv.id,
+      number: inv.number ?? null,
+      status: inv.status ?? 'unknown',
+      amount_paid: inv.amount_paid ?? 0,
+      currency: (inv.currency ?? 'gbp').toLowerCase(),
+      created: inv.created,
+      invoice_pdf: inv.invoice_pdf ?? null,
+    });
+  }
+  return results;
+}
+
+/**
+ * Sum succeeded PaymentIntents for a calendar month (UTC), excluding pay-the-difference.
+ * Used for admin dashboard revenue. Returns 0 if Stripe is not configured.
+ * @param yearMonth - { year, month } 1-based month (1–12)
+ * @returns Revenue in GBP (pounds, not pence)
+ */
+export async function getRevenueForMonthGbp(yearMonth: {
+  year: number;
+  month: number;
+}): Promise<number> {
+  if (!isStripeConfigured()) {
+    return 0;
+  }
+  const stripe = getStripe();
+  const start = Math.floor(
+    Date.UTC(yearMonth.year, yearMonth.month - 1, 1, 0, 0, 0, 0) / 1000
+  );
+  const end = Math.floor(
+    Date.UTC(yearMonth.year, yearMonth.month, 1, 0, 0, 0, 0) / 1000
+  );
+  let totalPence = 0;
+  for await (const pi of stripe.paymentIntents
+    .list({
+      created: { gte: start, lt: end },
+      limit: 100,
+    })
+    .autoPagingIterator()) {
+    if (pi.status !== 'succeeded' || pi.amount_received == null) continue;
+    const type = (pi.metadata?.type as string) ?? '';
+    if (type === 'pay_the_difference') continue;
+    totalPence += pi.amount_received;
+  }
+  return totalPence / 100;
 }

@@ -12,6 +12,7 @@ import { BookingValidationError, BookingNotFoundError } from '../errors/booking.
 import { logger } from '../utils/logger.util';
 import { emailService } from './email.service';
 import { isStripeConfigured } from '../config/stripe';
+import type { CreditTransactionClient } from './credit-transaction.service';
 
 type LocationName = PricingService.LocationName;
 
@@ -105,6 +106,29 @@ async function getRoomWithLocation(
 }
 
 /**
+ * Get room with location using transaction client (for use inside db.transaction).
+ */
+async function getRoomWithLocationTx(
+  tx: CreditTransactionClient,
+  roomId: string
+): Promise<{ room: typeof rooms.$inferSelect; locationName: LocationName }> {
+  const rows = await tx
+    .select({ room: rooms, locationName: locations.name })
+    .from(rooms)
+    .innerJoin(locations, eq(rooms.locationId, locations.id))
+    .where(eq(rooms.id, roomId))
+    .limit(1);
+  if (!rows.length) throw new BookingNotFoundError('Room not found');
+  const loc = rows[0].locationName as string;
+  if (!ALLOWED_LOCATIONS.includes(loc as LocationName)) {
+    throw new BookingValidationError(
+      `Invalid location: ${loc}. Allowed: ${ALLOWED_LOCATIONS.join(', ')}`
+    );
+  }
+  return { room: rows[0].room, locationName: loc as LocationName };
+}
+
+/**
  * Check availability: no overlapping confirmed booking for same room on same date.
  */
 export async function checkAvailability(
@@ -159,6 +183,35 @@ export async function checkAvailabilityExcluding(
 }
 
 /**
+ * Check availability excluding a booking id, using transaction client (for use inside db.transaction).
+ */
+async function checkAvailabilityExcludingTx(
+  tx: CreditTransactionClient,
+  roomId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeBookingId: string
+): Promise<boolean> {
+  const start = toTimeString(startTime);
+  const end = toTimeString(endTime);
+  const overlapping = await tx
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.roomId, roomId),
+        eq(bookings.bookingDate, date),
+        eq(bookings.status, 'confirmed'),
+        not(eq(bookings.id, excludeBookingId)),
+        sql`${bookings.startTime} < ${end}::time AND ${bookings.endTime} > ${start}::time`
+      )
+    )
+    .limit(1);
+  return overlapping.length === 0;
+}
+
+/**
  * Fetch all confirmed bookings for a room on a date (for availability computation).
  */
 async function getConfirmedBookingsForRoomDate(
@@ -181,12 +234,18 @@ async function getConfirmedBookingsForRoomDate(
     return {
       startTime: toTimeString(
         typeof st === 'object' && st instanceof Date
-          ? `${st.getUTCHours().toString().padStart(2, '0')}:${st.getUTCMinutes().toString().padStart(2, '0')}:${st.getUTCSeconds().toString().padStart(2, '0')}`
+          ? `${st.getUTCHours().toString().padStart(2, '0')}:${st
+              .getUTCMinutes()
+              .toString()
+              .padStart(2, '0')}:${st.getUTCSeconds().toString().padStart(2, '0')}`
           : String(st)
       ),
       endTime: toTimeString(
         typeof et === 'object' && et instanceof Date
-          ? `${et.getUTCHours().toString().padStart(2, '0')}:${et.getUTCMinutes().toString().padStart(2, '0')}:${et.getUTCSeconds().toString().padStart(2, '0')}`
+          ? `${et.getUTCHours().toString().padStart(2, '0')}:${et
+              .getUTCMinutes()
+              .toString()
+              .padStart(2, '0')}:${et.getUTCSeconds().toString().padStart(2, '0')}`
           : String(et)
       ),
     };
@@ -243,7 +302,10 @@ function formatTimeHHMM(t: string | Date): string {
     return t.length >= 5 ? t.slice(0, 5) : t;
   }
   const d = t as Date;
-  return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+  return `${d.getUTCHours().toString().padStart(2, '0')}:${d
+    .getUTCMinutes()
+    .toString()
+    .padStart(2, '0')}`;
 }
 
 export interface DayCalendarRoom {
@@ -496,7 +558,9 @@ export async function createBooking(
       // Rounding made difference zero; proceed with booking using available credits
     } else if (!isStripeConfigured()) {
       throw new BookingValidationError(
-        `Insufficient credits. You need £${creditAmountNeeded.toFixed(2)} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
+        `Insufficient credits. You need £${creditAmountNeeded.toFixed(
+          2
+        )} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
       );
     } else {
       const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
@@ -664,10 +728,7 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       throw new BookingValidationError('Booking is already cancelled');
 
     const bookingDateStr = String(booking.bookingDate);
-    const startTimeStr =
-      typeof booking.startTime === 'string'
-        ? booking.startTime.slice(0, 5)
-        : `${(booking.startTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.startTime as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+    const startTimeStr = formatTimeHHMM(booking.startTime as string | Date);
     const [y, mo, d] = bookingDateStr.split('-').map(Number);
     const [hh, mm] = startTimeStr.split(':').map(Number);
     const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
@@ -770,7 +831,9 @@ export type UpdateBookingParams = {
 
 /**
  * Update booking date/time/room. Caller must be owner or admin. 24h before start required.
- * Recalculates price from new room/date/times.
+ * Recalculates price from new room/date/times. Runs in a single DB transaction: re-fetches and
+ * locks the booking row, validates, checks availability, reconciles credit/voucher usage for
+ * price delta, then updates the booking. Thrown errors roll back the transaction.
  */
 export async function updateBooking(
   bookingId: string,
@@ -778,126 +841,159 @@ export async function updateBooking(
   isAdmin: boolean,
   updates: UpdateBookingParams
 ): Promise<void> {
-  const [row] = await db
-    .select({
-      booking: bookings,
-      roomName: rooms.name,
-      locationName: locations.name,
-    })
-    .from(bookings)
-    .innerJoin(rooms, eq(bookings.roomId, rooms.id))
-    .innerJoin(locations, eq(rooms.locationId, locations.id))
-    .where(
-      isAdmin ? eq(bookings.id, bookingId) : and(eq(bookings.id, bookingId), eq(bookings.userId, requesterUserId))
-    )
-    .limit(1);
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        booking: bookings,
+        roomName: rooms.name,
+        locationName: locations.name,
+      })
+      .from(bookings)
+      .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+      .innerJoin(locations, eq(rooms.locationId, locations.id))
+      .where(
+        isAdmin
+          ? eq(bookings.id, bookingId)
+          : and(eq(bookings.id, bookingId), eq(bookings.userId, requesterUserId))
+      )
+      .limit(1)
+      .for('update');
 
-  if (!row) throw new BookingNotFoundError('Booking not found');
-  const booking = row.booking;
-  if (booking.status === 'cancelled')
-    throw new BookingValidationError('Booking is already cancelled');
+    if (!row) throw new BookingNotFoundError('Booking not found');
+    const booking = row.booking;
+    if (booking.status === 'cancelled')
+      throw new BookingValidationError('Booking is already cancelled');
 
-  const bookingDateStr = String(booking.bookingDate);
-  const startTimeStr =
-    typeof booking.startTime === 'string'
-      ? booking.startTime.slice(0, 5)
-      : `${(booking.startTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.startTime as Date).getUTCMinutes().toString().padStart(2, '0')}`;
-  const [y, mo, d] = bookingDateStr.split('-').map(Number);
-  const [hh, mm] = startTimeStr.split(':').map(Number);
-  const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
-  const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
-  const now = new Date();
-  const minChangeBy = bookingStartUtc.getTime() - 24 * 60 * 60 * 1000;
-  if (now.getTime() > minChangeBy) {
-    throw new BookingValidationError(
-      'Changes with less than 24 hours before start are not permitted'
-    );
-  }
-
-  const newRoomId = updates.roomId ?? booking.roomId;
-  const newDate = updates.bookingDate ?? bookingDateStr;
-  const newStartTime = updates.startTime ?? startTimeStr;
-  const newEndTime =
-    updates.endTime ??
-    (typeof booking.endTime === 'string'
-      ? booking.endTime.slice(0, 5)
-      : `${(booking.endTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.endTime as Date).getUTCMinutes().toString().padStart(2, '0')}`);
-
-  const changed =
-    newRoomId !== booking.roomId ||
-    newDate !== bookingDateStr ||
-    newStartTime !== startTimeStr ||
-    newEndTime !==
-      (typeof booking.endTime === 'string'
-        ? booking.endTime.slice(0, 5)
-        : `${(booking.endTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.endTime as Date).getUTCMinutes().toString().padStart(2, '0')}`);
-
-  if (changed) {
-    const today = todayUtcString();
-    if (newDate < today) throw new BookingValidationError('Booking date must be today or in the future');
-    const [by, bmo, bd] = newDate.split('-').map(Number);
-    const startPart = newStartTime.trim().slice(0, 5);
-    const [nHH, nMM] = startPart.split(':').map(Number);
-    const newStartLocal = new Date(by, bmo - 1, bd, nHH, nMM, 0);
-    const newStartUtc = fromZonedTime(newStartLocal, 'Europe/London');
-    if (newStartUtc.getTime() <= Date.now()) {
-      throw new BookingValidationError('Cannot move booking to a time that has already passed');
-    }
-    const [ty, tm, td] = today.split('-').map(Number);
-    const maxDate = new Date(Date.UTC(ty, tm - 1, td));
-    maxDate.setUTCMonth(maxDate.getUTCMonth() + 1);
-    const maxDateStr = maxDate.toISOString().split('T')[0];
-    if (newDate > maxDateStr) {
-      throw new BookingValidationError('Bookings can only be up to 1 month in advance');
-    }
-    const { locationName } = await getRoomWithLocation(newRoomId);
-    try {
-      PricingService.calculateTotalPrice(
-        locationName,
-        new Date(newDate + 'T12:00:00Z'),
-        newStartTime,
-        newEndTime
+    const userId = booking.userId;
+    const bookingDateStr = String(booking.bookingDate);
+    const startTimeStr = formatTimeHHMM(booking.startTime as string | Date);
+    const endTimeStr = formatTimeHHMM(booking.endTime as string | Date);
+    const [y, mo, d] = bookingDateStr.split('-').map(Number);
+    const [hh, mm] = startTimeStr.split(':').map(Number);
+    const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
+    const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
+    const now = new Date();
+    const minChangeBy = bookingStartUtc.getTime() - 24 * 60 * 60 * 1000;
+    if (now.getTime() > minChangeBy) {
+      throw new BookingValidationError(
+        'Changes with less than 24 hours before start are not permitted'
       );
-    } catch (e) {
-      throw new BookingValidationError(e instanceof Error ? e.message : 'Invalid time window');
     }
-    const available = await checkAvailabilityExcluding(
-      newRoomId,
-      newDate,
+
+    const newRoomId = updates.roomId ?? booking.roomId;
+    const newDate = updates.bookingDate ?? bookingDateStr;
+    const newStartTime = updates.startTime ?? startTimeStr;
+    const newEndTime = updates.endTime ?? endTimeStr;
+
+    const changed =
+      newRoomId !== booking.roomId ||
+      newDate !== bookingDateStr ||
+      newStartTime !== startTimeStr ||
+      newEndTime !== endTimeStr;
+
+    let locationName: LocationName;
+    if (changed) {
+      const today = todayUtcString();
+      if (newDate < today)
+        throw new BookingValidationError('Booking date must be today or in the future');
+      const [by, bmo, bd] = newDate.split('-').map(Number);
+      const startPart = newStartTime.trim().slice(0, 5);
+      const [nHH, nMM] = startPart.split(':').map(Number);
+      const newStartLocal = new Date(by, bmo - 1, bd, nHH, nMM, 0);
+      const newStartUtc = fromZonedTime(newStartLocal, 'Europe/London');
+      if (newStartUtc.getTime() <= Date.now()) {
+        throw new BookingValidationError('Cannot move booking to a time that has already passed');
+      }
+      const [ty, tm, td] = today.split('-').map(Number);
+      const maxDate = new Date(Date.UTC(ty, tm - 1, td));
+      maxDate.setUTCMonth(maxDate.getUTCMonth() + 1);
+      const maxDateStr = maxDate.toISOString().split('T')[0];
+      if (newDate > maxDateStr) {
+        throw new BookingValidationError('Bookings can only be up to 1 month in advance');
+      }
+      const roomWithLoc = await getRoomWithLocationTx(tx, newRoomId);
+      locationName = roomWithLoc.locationName;
+      try {
+        PricingService.calculateTotalPrice(
+          locationName,
+          new Date(newDate + 'T12:00:00Z'),
+          newStartTime,
+          newEndTime
+        );
+      } catch (e) {
+        throw new BookingValidationError(e instanceof Error ? e.message : 'Invalid time window');
+      }
+      const available = await checkAvailabilityExcludingTx(
+        tx,
+        newRoomId,
+        newDate,
+        newStartTime,
+        newEndTime,
+        bookingId
+      );
+      if (!available) throw new BookingValidationError('Time slot is not available');
+    } else {
+      locationName = row.locationName as LocationName;
+    }
+
+    const dateObj = new Date(newDate + 'T12:00:00Z');
+    const totalPrice = PricingService.calculateTotalPrice(
+      locationName,
+      dateObj,
       newStartTime,
-      newEndTime,
-      bookingId
+      newEndTime
     );
-    if (!available) throw new BookingValidationError('Time slot is not available');
-  }
 
-  const { locationName } = await getRoomWithLocation(newRoomId);
-  const dateObj = new Date(newDate + 'T12:00:00Z');
-  const totalPrice = PricingService.calculateTotalPrice(
-    locationName,
-    dateObj,
-    newStartTime,
-    newEndTime
-  );
-  const durationHours =
-    (parseInt(newEndTime.slice(0, 2), 10) * 60 +
-      parseInt(newEndTime.slice(3, 5), 10) -
-      (parseInt(newStartTime.slice(0, 2), 10) * 60 + parseInt(newStartTime.slice(3, 5), 10))) /
-    60;
-  const pricePerHour = durationHours > 0 ? totalPrice / durationHours : totalPrice;
+    const oldTotalPrice = parseFloat(booking.totalPrice.toString());
+    const priceDelta = totalPrice - oldTotalPrice;
 
-  await db
-    .update(bookings)
-    .set({
-      roomId: newRoomId,
-      bookingDate: newDate,
-      startTime: newStartTime,
-      endTime: newEndTime,
-      totalPrice: totalPrice.toFixed(2),
-      pricePerHour: pricePerHour.toFixed(2),
-      updatedAt: new Date(),
-    })
-    .where(eq(bookings.id, bookingId));
+    if (priceDelta > 0) {
+      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, priceDelta);
+    } else if (priceDelta < 0) {
+      const refundAmount = Math.abs(priceDelta);
+      const [by, bmo] = newDate.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(by, bmo, 0));
+      const expiryDate = lastDay.toISOString().split('T')[0];
+      await CreditTransactionService.grantCreditsWithinTransaction(
+        tx,
+        userId,
+        refundAmount,
+        expiryDate,
+        'manual',
+        undefined,
+        'Refund for booking update'
+      );
+    }
+
+    const startTimeDb = toTimeString(
+      typeof newStartTime === 'string'
+        ? newStartTime
+        : new Date(newStartTime).toTimeString().slice(0, 8)
+    );
+    const endTimeDb = toTimeString(
+      typeof newEndTime === 'string' ? newEndTime : new Date(newEndTime).toTimeString().slice(0, 8)
+    );
+
+    const durationHours =
+      (parseInt(endTimeDb.slice(0, 2), 10) * 60 +
+        parseInt(endTimeDb.slice(3, 5), 10) -
+        (parseInt(startTimeDb.slice(0, 2), 10) * 60 + parseInt(startTimeDb.slice(3, 5), 10))) /
+      60;
+    const pricePerHour = durationHours > 0 ? totalPrice / durationHours : totalPrice;
+
+    await tx
+      .update(bookings)
+      .set({
+        roomId: newRoomId,
+        bookingDate: newDate,
+        startTime: startTimeDb,
+        endTime: endTimeDb,
+        totalPrice: totalPrice.toFixed(2),
+        pricePerHour: pricePerHour.toFixed(2),
+        updatedAt: new Date(),
+      })
+      .where(eq(bookings.id, bookingId));
+  });
 }
 
 /**
@@ -1000,7 +1096,10 @@ function formatTimeForDisplay(t: string | Date): string {
   const str =
     typeof t === 'string'
       ? t.slice(0, 5)
-      : `${(t as Date).getUTCHours().toString().padStart(2, '0')}:${(t as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+      : `${(t as Date).getUTCHours().toString().padStart(2, '0')}:${(t as Date)
+          .getUTCMinutes()
+          .toString()
+          .padStart(2, '0')}`;
   const [hh, mm] = str.split(':').map(Number);
   const h = hh % 12 || 12;
   const m = mm;

@@ -236,7 +236,9 @@ export class BookingController {
         return;
       }
       const targetUserId =
-        (type === 'free' || type === 'internal') && req.user!.role === 'admin' && req.body.targetUserId
+        (type === 'free' || type === 'internal') &&
+        req.user!.role === 'admin' &&
+        req.body.targetUserId
           ? req.body.targetUserId
           : req.user!.id;
       if (targetUserId !== req.user!.id && req.user!.role !== 'admin') {
@@ -301,6 +303,10 @@ export class BookingController {
         });
         return;
       }
+      if (roomId && !UUID_REGEX.test(roomId)) {
+        res.status(400).json({ success: false, error: 'Invalid room id' });
+        return;
+      }
       if (bookingDate && !DATE_REGEX.test(bookingDate)) {
         res.status(400).json({ success: false, error: 'bookingDate must be YYYY-MM-DD' });
         return;
@@ -314,12 +320,12 @@ export class BookingController {
         return;
       }
       const isAdmin = req.user!.role === 'admin';
-      await BookingService.updateBooking(
-        id,
-        req.user!.id,
-        isAdmin,
-        { roomId, bookingDate, startTime, endTime }
-      );
+      await BookingService.updateBooking(id, req.user!.id, isAdmin, {
+        roomId,
+        bookingDate,
+        startTime,
+        endTime,
+      });
       res.status(200).json({ success: true, message: 'Booking updated' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update booking';
@@ -337,9 +343,7 @@ export class BookingController {
     try {
       const { id } = req.params;
       const effectiveUserId =
-        req.user!.role === 'admin'
-          ? await BookingService.getBookingOwnerId(id)
-          : req.user!.id;
+        req.user!.role === 'admin' ? await BookingService.getBookingOwnerId(id) : req.user!.id;
       if (!effectiveUserId) {
         res.status(404).json({ success: false, error: 'Booking not found' });
         return;

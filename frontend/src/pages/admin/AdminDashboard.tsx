@@ -38,7 +38,6 @@ function getDefaultDateRange(): { fromDate: string; toDate: string } {
 export const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const defaultRange = getDefaultDateRange();
   const [practitionerCount, setPractitionerCount] = useState<number | null>(null);
   const [adHocCount, setAdHocCount] = useState<number | null>(null);
   const [permanentCount, setPermanentCount] = useState<number | null>(null);
@@ -50,12 +49,14 @@ export const AdminDashboard: React.FC = () => {
     occupancyPercent: number;
   } | null>(null);
   const [revenueCurrentMonthGbp, setRevenueCurrentMonthGbp] = useState<number | null>(null);
-  const [occupancyFromDate, setOccupancyFromDate] = useState(defaultRange.fromDate);
-  const [occupancyToDate, setOccupancyToDate] = useState(defaultRange.toDate);
+  const [occupancyFromDate, setOccupancyFromDate] = useState(() => getDefaultDateRange().fromDate);
+  const [occupancyToDate, setOccupancyToDate] = useState(() => getDefaultDateRange().toDate);
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  const [missingInfo, setMissingInfo] = useState<Array<{ id: string; name: string; missing: string[] }>>([]);
+  const [missingInfo, setMissingInfo] = useState<
+    Array<{ id: string; name: string; missing: string[] }>
+  >([]);
   const [missingInfoLoading, setMissingInfoLoading] = useState(true);
   const [missingInfoError, setMissingInfoError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -124,7 +125,8 @@ export const AdminDashboard: React.FC = () => {
       console.error('Failed to fetch missing info:', error);
       setMissingInfoError('Failed to load missing information list.');
     } finally {
-      if (abortControllerRef.current === controller) { // Only stop loading if this is the latest request
+      if (abortControllerRef.current === controller) {
+        // Only stop loading if this is the latest request
         setMissingInfoLoading(false);
       }
     }
@@ -181,7 +183,6 @@ export const AdminDashboard: React.FC = () => {
             </CardContent>
           </Card>
 
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Ad-Hoc</CardTitle>
@@ -220,7 +221,11 @@ export const AdminDashboard: React.FC = () => {
                 <div className="text-2xl font-bold text-slate-400">—</div>
               ) : (
                 <div className="text-2xl font-bold">
-                  {loading ? '...' : revenueCurrentMonthGbp != null ? `£${revenueCurrentMonthGbp.toFixed(2)}` : '—'}
+                  {loading
+                    ? '...'
+                    : revenueCurrentMonthGbp != null
+                    ? `£${revenueCurrentMonthGbp.toFixed(2)}`
+                    : '—'}
                 </div>
               )}
             </CardContent>
@@ -272,7 +277,8 @@ export const AdminDashboard: React.FC = () => {
                 <div>
                   <div className="text-2xl font-bold">{occupancy.occupancyPercent.toFixed(1)}%</div>
                   <div className="text-xs text-slate-500">
-                    {occupancy.bookedHours.toFixed(1)}h booked / {occupancy.totalSlotHours}h capacity
+                    {occupancy.bookedHours.toFixed(1)}h booked / {occupancy.totalSlotHours}h
+                    capacity
                   </div>
                 </div>
               ) : (
@@ -319,8 +325,12 @@ export const AdminDashboard: React.FC = () => {
                 {missingInfoLoading ? (
                   Array.from({ length: 3 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
+                      <TableCell>
+                        <Skeleton className="h-4 w-[150px]" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-4 w-[200px]" />
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : missingInfoError ? (
@@ -341,12 +351,13 @@ export const AdminDashboard: React.FC = () => {
                           {practitioner.missing.map((item, index) => (
                             <span
                               key={index}
-                              className={`text-sm ${item.includes('Missing') || item.includes('Incomplete')
-                                ? 'text-red-500 font-medium'
-                                : item.includes('Expired')
+                              className={`text-sm ${
+                                item.includes('Missing') || item.includes('Incomplete')
+                                  ? 'text-red-500 font-medium'
+                                  : item.includes('Expired')
                                   ? 'text-orange-500 font-medium'
                                   : 'text-red-500 font-medium' // Default to missing style
-                                }`}
+                              }`}
                             >
                               • {item}
                             </span>
@@ -370,7 +381,7 @@ export const AdminDashboard: React.FC = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1 || missingInfoLoading}
                 >
                   Previous
@@ -381,7 +392,7 @@ export const AdminDashboard: React.FC = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages || missingInfoLoading}
                 >
                   Next
