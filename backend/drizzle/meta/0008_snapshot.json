@@ -1,6 +1,6 @@
 {
-  "id": "6fe72c20-31a4-4cae-9790-20604c464222",
-  "prevId": "20f01a99-f0f6-4e12-a427-e8073c25be15",
+  "id": "604b9218-d570-4dc5-8944-790dfbd17eb2",
+  "prevId": "6fe72c20-31a4-4cae-9790-20604c464222",
   "version": "5",
   "dialect": "pg",
   "tables": {
@@ -1460,7 +1460,8 @@
       "name": "document_type",
       "values": {
         "insurance": "insurance",
-        "clinical_registration": "clinical_registration"
+        "clinical_registration": "clinical_registration",
+        "reference": "reference"
       }
     },
     "kiosk_action": {

@@ -25,7 +25,7 @@ export const bookingTypeEnum = pgEnum('booking_type', [
   'free',
   'internal',
 ]);
-export const documentTypeEnum = pgEnum('document_type', ['insurance', 'clinical_registration']);
+export const documentTypeEnum = pgEnum('document_type', ['insurance', 'clinical_registration', 'reference']);
 export const kioskActionEnum = pgEnum('kiosk_action', ['sign_in', 'sign_out']);
 export const notificationStatusEnum = pgEnum('notification_status', ['pending', 'sent', 'failed']);
 export const userStatusEnum = pgEnum('user_status', ['pending', 'active', 'suspended', 'rejected']);
