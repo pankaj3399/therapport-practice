@@ -582,7 +582,9 @@ export const Bookings: React.FC = () => {
                     {Array.from({ length: 28 }, (_, i) => {
                       const h = 8 + Math.floor(i / 2);
                       const m = (i % 2) * 30;
-                      const timeLabel = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                      const timeLabel = `${h.toString().padStart(2, '0')}:${m
+                        .toString()
+                        .padStart(2, '0')}`;
                       return (
                         <tr key={i}>
                           <td className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 text-xs text-slate-500 dark:text-slate-400 align-top">
@@ -744,50 +746,52 @@ export const Bookings: React.FC = () => {
             ) : confirmedUpcoming.length === 0 ? (
               <p className="text-sm text-slate-500">No upcoming confirmed bookings.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Room</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead className="w-[100px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {confirmedUpcoming.map((b) => {
-                    const isCancelable = canCancelBooking(b.bookingDate, b.startTime);
-                    return (
-                      <TableRow key={b.id}>
-                        <TableCell>{formatDateUK(b.bookingDate)}</TableCell>
-                        <TableCell>
-                          {b.roomName} ({b.locationName})
-                        </TableCell>
-                        <TableCell>
-                          {b.startTime.slice(0, 5)} – {b.endTime.slice(0, 5)}
-                        </TableCell>
-                        <TableCell>£{b.totalPrice.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleCancelBooking(b.id)}
-                            disabled={cancellingId === b.id || !isCancelable}
-                            className="text-red-600 hover:text-red-700"
-                            title={
-                              !isCancelable
-                                ? 'Cancellation with less than 24 hours notice is not permitted'
-                                : undefined
-                            }
-                          >
-                            {cancellingId === b.id ? 'Cancelling…' : 'Cancel'}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[550px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Room</TableHead>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {confirmedUpcoming.map((b) => {
+                      const isCancelable = canCancelBooking(b.bookingDate, b.startTime);
+                      return (
+                        <TableRow key={b.id}>
+                          <TableCell>{formatDateUK(b.bookingDate)}</TableCell>
+                          <TableCell>
+                            {b.roomName} ({b.locationName})
+                          </TableCell>
+                          <TableCell>
+                            {b.startTime.slice(0, 5)} – {b.endTime.slice(0, 5)}
+                          </TableCell>
+                          <TableCell>£{b.totalPrice.toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleCancelBooking(b.id)}
+                              disabled={cancellingId === b.id || !isCancelable}
+                              className="text-red-600 hover:text-red-700"
+                              title={
+                                !isCancelable
+                                  ? 'Cancellation with less than 24 hours notice is not permitted'
+                                  : undefined
+                              }
+                            >
+                              {cancellingId === b.id ? 'Cancelling…' : 'Cancel'}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>

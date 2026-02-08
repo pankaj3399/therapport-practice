@@ -281,10 +281,10 @@ export const Profile: React.FC = () => {
       const nextOfKinData =
         nextOfKin.name || nextOfKin.phone || nextOfKin.email
           ? {
-            name: nextOfKin.name || undefined,
-            phone: nextOfKin.phone || undefined,
-            email: nextOfKin.email || undefined,
-          }
+              name: nextOfKin.name || undefined,
+              phone: nextOfKin.phone || undefined,
+              email: nextOfKin.email || undefined,
+            }
           : undefined;
 
       const response = await api.put('/auth/profile', {
@@ -403,7 +403,13 @@ export const Profile: React.FC = () => {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={user?.membership?.marketingAddon ? "grid w-full grid-cols-3" : "grid w-full grid-cols-2"}>
+          <TabsList
+            className={
+              user?.membership?.marketingAddon
+                ? 'grid w-full grid-cols-3'
+                : 'grid w-full grid-cols-2'
+            }
+          >
             <TabsTrigger value="personal">General Info</TabsTrigger>
             <TabsTrigger value="security">Password & Security</TabsTrigger>
             {user?.membership?.marketingAddon && (
@@ -441,11 +447,7 @@ export const Profile: React.FC = () => {
                     <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">
                       Upload a photo with circular crop, drag to position, and zoom
                     </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPhotoDialogOpen(true)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => setPhotoDialogOpen(true)}>
                       <Icon name="photo_camera" size={18} className="mr-2" />
                       {user?.photoUrl ? 'Change Photo' : 'Upload Photo'}
                     </Button>
@@ -470,7 +472,8 @@ export const Profile: React.FC = () => {
                       }
                     } catch (err: any) {
                       // Re-throw with a meaningful message so PhotoCropDialog can display it
-                      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to upload photo';
+                      const errorMessage =
+                        err?.response?.data?.error || err?.message || 'Failed to upload photo';
                       throw new Error(errorMessage);
                     }
                   }}
@@ -478,7 +481,7 @@ export const Profile: React.FC = () => {
                 />
 
                 <form onSubmit={handlePersonalInfoSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name</Label>
                       <Input
@@ -543,7 +546,7 @@ export const Profile: React.FC = () => {
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Next of Kin
                     </h3>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="kinName">Name</Label>
                         <Input
@@ -595,13 +598,19 @@ export const Profile: React.FC = () => {
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <Icon
-                              name={(insuranceDocument.isExpired ?? false) ? 'error' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'}
+                              name={
+                                insuranceDocument.isExpired ?? false
+                                  ? 'error'
+                                  : insuranceDocument.isExpiringSoon ?? false
+                                  ? 'warning'
+                                  : 'verified'
+                              }
                               className={cn(
-                                (insuranceDocument.isExpired ?? false)
+                                insuranceDocument.isExpired ?? false
                                   ? 'text-red-500'
-                                  : (insuranceDocument.isExpiringSoon ?? false)
-                                    ? 'text-orange-500'
-                                    : 'text-green-500'
+                                  : insuranceDocument.isExpiringSoon ?? false
+                                  ? 'text-orange-500'
+                                  : 'text-green-500'
                               )}
                             />
                             <span className="text-sm font-medium text-slate-900 dark:text-white">
@@ -609,15 +618,28 @@ export const Profile: React.FC = () => {
                             </span>
                           </div>
                           <Badge
-                            variant={(insuranceDocument.isExpired ?? false) ? 'destructive' : (insuranceDocument.isExpiringSoon ?? false) ? 'warning' : 'success'}
+                            variant={
+                              insuranceDocument.isExpired ?? false
+                                ? 'destructive'
+                                : insuranceDocument.isExpiringSoon ?? false
+                                ? 'warning'
+                                : 'success'
+                            }
                           >
-                            {(insuranceDocument.isExpired ?? false)
+                            {insuranceDocument.isExpired ?? false
                               ? 'Expired'
-                              : (insuranceDocument.isExpiringSoon ?? false)
-                                ? (typeof insuranceDocument.daysUntilExpiry === 'number' && insuranceDocument.daysUntilExpiry >= 0
-                                  ? `Expires in ${insuranceDocument.daysUntilExpiry} days`
-                                  : 'Expiring soon')
-                                : `Valid until ${new Date(insuranceDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                              : insuranceDocument.isExpiringSoon ?? false
+                              ? typeof insuranceDocument.daysUntilExpiry === 'number' &&
+                                insuranceDocument.daysUntilExpiry >= 0
+                                ? `Expires in ${insuranceDocument.daysUntilExpiry} days`
+                                : 'Expiring soon'
+                              : `Valid until ${new Date(
+                                  insuranceDocument.expiryDate
+                                ).toLocaleDateString('en-GB', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}`}
                           </Badge>
                         </div>
                         {(insuranceDocument.isExpired ?? false) && (
@@ -625,11 +647,12 @@ export const Profile: React.FC = () => {
                             Your insurance document has expired. Please upload a new one.
                           </p>
                         )}
-                        {(insuranceDocument.isExpiringSoon ?? false) && !(insuranceDocument.isExpired ?? false) && (
-                          <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
-                            Your insurance document is expiring soon. Please upload a new one.
-                          </p>
-                        )}
+                        {(insuranceDocument.isExpiringSoon ?? false) &&
+                          !(insuranceDocument.isExpired ?? false) && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                              Your insurance document is expiring soon. Please upload a new one.
+                            </p>
+                          )}
                       </div>
                     )}
 
@@ -666,7 +689,8 @@ export const Profile: React.FC = () => {
                           </Button>
                         </div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Upload your professional indemnity insurance document (PDF, JPG, PNG, max 10MB)
+                          Upload your professional indemnity insurance document (PDF, JPG, PNG, max
+                          10MB)
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -879,13 +903,19 @@ export const Profile: React.FC = () => {
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                               <Icon
-                                name={(clinicalDocument.isExpired ?? false) ? 'error' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'verified'}
+                                name={
+                                  clinicalDocument.isExpired ?? false
+                                    ? 'error'
+                                    : clinicalDocument.isExpiringSoon ?? false
+                                    ? 'warning'
+                                    : 'verified'
+                                }
                                 className={cn(
-                                  (clinicalDocument.isExpired ?? false)
+                                  clinicalDocument.isExpired ?? false
                                     ? 'text-red-500'
-                                    : (clinicalDocument.isExpiringSoon ?? false)
-                                      ? 'text-orange-500'
-                                      : 'text-green-500'
+                                    : clinicalDocument.isExpiringSoon ?? false
+                                    ? 'text-orange-500'
+                                    : 'text-green-500'
                                 )}
                               />
                               <span className="text-sm font-medium text-slate-900 dark:text-white">
@@ -893,34 +923,52 @@ export const Profile: React.FC = () => {
                               </span>
                             </div>
                             <Badge
-                              variant={(clinicalDocument.isExpired ?? false) ? 'destructive' : (clinicalDocument.isExpiringSoon ?? false) ? 'warning' : 'success'}
+                              variant={
+                                clinicalDocument.isExpired ?? false
+                                  ? 'destructive'
+                                  : clinicalDocument.isExpiringSoon ?? false
+                                  ? 'warning'
+                                  : 'success'
+                              }
                             >
-                              {(clinicalDocument.isExpired ?? false)
+                              {clinicalDocument.isExpired ?? false
                                 ? 'Expired'
-                                : (clinicalDocument.isExpiringSoon ?? false)
-                                  ? (typeof clinicalDocument.daysUntilExpiry === 'number' && clinicalDocument.daysUntilExpiry >= 0
-                                    ? `Expires in ${clinicalDocument.daysUntilExpiry} days`
-                                    : 'Expiring soon')
-                                  : `Valid until ${new Date(clinicalDocument.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                                : clinicalDocument.isExpiringSoon ?? false
+                                ? typeof clinicalDocument.daysUntilExpiry === 'number' &&
+                                  clinicalDocument.daysUntilExpiry >= 0
+                                  ? `Expires in ${clinicalDocument.daysUntilExpiry} days`
+                                  : 'Expiring soon'
+                                : `Valid until ${new Date(
+                                    clinicalDocument.expiryDate
+                                  ).toLocaleDateString('en-GB', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}`}
                             </Badge>
                           </div>
                           {(clinicalDocument.isExpired ?? false) && (
                             <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                              Your clinical registration document has expired. Please upload a new one.
+                              Your clinical registration document has expired. Please upload a new
+                              one.
                             </p>
                           )}
-                          {(clinicalDocument.isExpiringSoon ?? false) && !(clinicalDocument.isExpired ?? false) && (
-                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
-                              Your clinical registration document is expiring soon. Please upload a new one.
-                            </p>
-                          )}
+                          {(clinicalDocument.isExpiringSoon ?? false) &&
+                            !(clinicalDocument.isExpired ?? false) && (
+                              <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                                Your clinical registration document is expiring soon. Please upload
+                                a new one.
+                              </p>
+                            )}
                         </div>
                       )}
 
                       {/* Upload Form */}
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor="clinicalRegistrationFile">Clinical Registration Document</Label>
+                          <Label htmlFor="clinicalRegistrationFile">
+                            Clinical Registration Document
+                          </Label>
                           <input
                             ref={clinicalFileInputRef}
                             type="file"
@@ -1008,14 +1056,16 @@ export const Profile: React.FC = () => {
                         </p>
                       </div>
                       <form onSubmit={handleExecutorSubmit} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="executorName">Name</Label>
                             <Input
                               id="executorName"
                               placeholder="John Doe"
                               value={executorData.name}
-                              onChange={(e) => setExecutorData({ ...executorData, name: e.target.value })}
+                              onChange={(e) =>
+                                setExecutorData({ ...executorData, name: e.target.value })
+                              }
                               required
                               disabled={executorLoading}
                             />
@@ -1027,7 +1077,9 @@ export const Profile: React.FC = () => {
                               type="email"
                               placeholder="john.doe@example.com"
                               value={executorData.email}
-                              onChange={(e) => setExecutorData({ ...executorData, email: e.target.value })}
+                              onChange={(e) =>
+                                setExecutorData({ ...executorData, email: e.target.value })
+                              }
                               required
                               disabled={executorLoading}
                             />
@@ -1040,7 +1092,9 @@ export const Profile: React.FC = () => {
                             type="tel"
                             placeholder="+44 20 1234 5678"
                             value={executorData.phone}
-                            onChange={(e) => setExecutorData({ ...executorData, phone: e.target.value })}
+                            onChange={(e) =>
+                              setExecutorData({ ...executorData, phone: e.target.value })
+                            }
                             required
                             disabled={executorLoading}
                           />

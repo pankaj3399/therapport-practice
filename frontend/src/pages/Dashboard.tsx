@@ -698,13 +698,13 @@ export const Dashboard: React.FC = () => {
                   View All
                 </Button>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 {cancelError && (
                   <p className="px-6 py-2 text-sm text-red-600 dark:text-red-400" role="alert">
                     {cancelError}
                   </p>
                 )}
-                <Table>
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Room</TableHead>
@@ -718,36 +718,40 @@ export const Dashboard: React.FC = () => {
                     {dashboardData?.upcomingBookings &&
                     dashboardData.upcomingBookings.length > 0 ? (
                       dashboardData.upcomingBookings.map((booking) => {
-                        const isCancelable = canCancelBooking(booking.bookingDate, booking.startTime);
+                        const isCancelable = canCancelBooking(
+                          booking.bookingDate,
+                          booking.startTime
+                        );
                         return (
-                        <TableRow key={booking.id}>
-                          <TableCell className="font-medium">
-                            {booking.roomName} ({booking.locationName})
-                          </TableCell>
-                          <TableCell>{formatBookingDate(booking.bookingDate)}</TableCell>
-                          <TableCell>{formatTime(booking.startTime)}</TableCell>
-                          <TableCell>{formatTime(booking.endTime)}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleCancelBooking(booking.id)}
-                              disabled={cancellingId === booking.id || !isCancelable}
-                              title={
-                                !isCancelable
-                                  ? 'Cancellation with less than 24 hours notice is not permitted'
-                                  : undefined
-                              }
-                            >
-                              {cancellingId === booking.id ? (
-                                'Cancelling…'
-                              ) : (
-                                <Icon name="cancel" size={18} />
-                              )}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ); })
+                          <TableRow key={booking.id}>
+                            <TableCell className="font-medium">
+                              {booking.roomName} ({booking.locationName})
+                            </TableCell>
+                            <TableCell>{formatBookingDate(booking.bookingDate)}</TableCell>
+                            <TableCell>{formatTime(booking.startTime)}</TableCell>
+                            <TableCell>{formatTime(booking.endTime)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleCancelBooking(booking.id)}
+                                disabled={cancellingId === booking.id || !isCancelable}
+                                title={
+                                  !isCancelable
+                                    ? 'Cancellation with less than 24 hours notice is not permitted'
+                                    : undefined
+                                }
+                              >
+                                {cancellingId === booking.id ? (
+                                  'Cancelling…'
+                                ) : (
+                                  <Icon name="cancel" size={18} />
+                                )}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     ) : (
                       <TableRow>
                         <TableCell
@@ -774,8 +778,8 @@ export const Dashboard: React.FC = () => {
                   View All
                 </Button>
               </CardHeader>
-              <CardContent className="p-0">
-                <Table>
+              <CardContent className="p-0 overflow-x-auto">
+                <Table className="min-w-[650px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
