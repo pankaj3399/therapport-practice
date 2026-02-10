@@ -998,8 +998,9 @@ export async function updateBooking(
       const allocated = parseFloat(v.hoursAllocated.toString());
       return sum + Math.max(0, allocated - used);
     }, 0);
+    const effectiveAvailableVoucherHours = remainingVoucherHours + oldVoucherHoursUsed;
 
-    const newVoucherHoursToUse = Math.min(remainingVoucherHours, durationHours);
+    const newVoucherHoursToUse = Math.min(effectiveAvailableVoucherHours, durationHours);
     const totalPriceCents = Math.round(totalPrice * 100);
     const newCreditNeeded =
       newVoucherHoursToUse >= durationHours
@@ -1102,7 +1103,7 @@ export async function updateBooking(
       }
 
       let remainingToDeduct = actualVoucherDeduct;
-      for (const v of voucherRowsForDeduct) {
+      for (const v of voucherRows) {
         if (remainingToDeduct <= 0) break;
         const used = parseFloat(v.hoursUsed.toString());
         const allocated = parseFloat(v.hoursAllocated.toString());

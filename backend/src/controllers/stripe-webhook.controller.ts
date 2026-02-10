@@ -162,7 +162,35 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               });
               break;
             }
-            await grantPayDifferenceCredits(userId, amountReceived, 'Pay the difference for room booking');
+            const sourceId = paymentIntentIdToSourceId(paymentIntent.id);
+            const alreadyGranted = await CreditTransactionService.hasCreditForSourceId(
+              userId,
+              'pay_difference',
+              sourceId
+            );
+            if (alreadyGranted) {
+              logger.info('Pay-the-difference credits already granted (idempotent)', {
+                eventId: event.id,
+                userId,
+                roomId,
+                date,
+                paymentIntentId: paymentIntent.id,
+              });
+            } else {
+              await grantPayDifferenceCredits(
+                userId,
+                amountReceived,
+                'Pay the difference for room booking',
+                sourceId
+              );
+              logger.info('Pay-the-difference credits granted', {
+                eventId: event.id,
+                userId,
+                roomId,
+                date,
+                paymentIntentId: paymentIntent.id,
+              });
+            }
             const result = await BookingService.createBooking(
               userId,
               roomId,
@@ -206,6 +234,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               'pay_difference',
               sourceId
             );
+            let creditsGrantedThisCall = false;
             if (alreadyGranted) {
               logger.info('Pay-the-difference-update credits already granted (idempotent)', {
                 eventId: event.id,
@@ -220,13 +249,13 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
                 'Pay the difference for booking update',
                 sourceId
               );
+              creditsGrantedThisCall = true;
               logger.info('Pay-the-difference-update credits granted', {
                 eventId: event.id,
                 userId,
                 bookingId,
                 paymentIntentId: paymentIntent.id,
               });
-              processedEventIds.set(event.id, Date.now());
             }
             const updates: Parameters<typeof BookingService.updateBooking>[3] = {};
             if (typeof roomId === 'string') updates.roomId = roomId;
@@ -247,8 +276,23 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
                   bookingId,
                 });
               } catch (updateErr) {
+                if (creditsGrantedThisCall) {
+                  try {
+                    await CreditTransactionService.revokePayDifferenceCredits(userId, sourceId);
+                    logger.warn(
+                      'Pay-the-difference-update credits revoked due to booking update failure',
+                      { eventId: event.id, userId, bookingId, paymentIntentId: paymentIntent.id }
+                    );
+                  } catch (revokeErr) {
+                    logger.error(
+                      'Failed to revoke pay-the-difference-update credits after booking update failure',
+                      revokeErr instanceof Error ? revokeErr : new Error(String(revokeErr)),
+                      { eventId: event.id, userId, bookingId, paymentIntentId: paymentIntent.id }
+                    );
+                  }
+                }
                 logger.error(
-                  'Pay-the-difference-update booking update failed (credits already granted, event marked processed)',
+                  'Pay-the-difference-update booking update failed',
                   updateErr instanceof Error ? updateErr : new Error(String(updateErr)),
                   { eventId: event.id, userId, bookingId }
                 );

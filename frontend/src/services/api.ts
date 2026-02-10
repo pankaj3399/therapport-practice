@@ -209,6 +209,16 @@ export interface VoucherSummary {
   }>;
 }
 
+export interface InvoiceItem {
+  id: string;
+  number: string | null;
+  status: string;
+  amount_paid: number;
+  currency: string;
+  created: number;
+  invoice_pdf: string | null;
+}
+
 /** Discriminated union for createBooking response; narrow via success and paymentRequired. */
 export type CreateBookingResponse =
   | { success: true; booking: { id: string }; paymentRequired?: false }
@@ -320,7 +330,16 @@ export const practitionerApi = {
     id: string,
     data: { roomId?: string; bookingDate?: string; startTime?: string; endTime?: string }
   ) => {
-    return api.patch<ApiResponse<{ message?: string }>>(`/practitioner/bookings/${id}`, data);
+    return api.patch<
+      | ApiResponse<{ message?: string }>
+      | {
+          success: false;
+          paymentRequired: true;
+          clientSecret: string;
+          paymentIntentId: string;
+          amountPence: number;
+        }
+    >(`/practitioner/bookings/${id}`, data);
   },
 
   cancelBooking: (id: string) => {
@@ -382,15 +401,7 @@ export const practitionerApi = {
   getInvoices: (signal?: AbortSignal) => {
     return api.get<{
       success: boolean;
-      invoices: Array<{
-        id: string;
-        number: string | null;
-        status: string;
-        amount_paid: number;
-        currency: string;
-        created: number;
-        invoice_pdf: string | null;
-      }>;
+      invoices: InvoiceItem[];
     }>('/practitioner/invoices', { signal });
   },
 };

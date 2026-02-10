@@ -235,35 +235,38 @@ export const AdminCalendar: React.FC = () => {
                                         {booking.bookerName}
                                       </span>
                                     )}
-                                    {booking.id && (
-                                      <div className="flex flex-wrap gap-1 mt-1">
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-6 text-xs"
-                                          onClick={() =>
-                                            setModifyBooking({
-                                              id: booking.id!,
-                                              roomId: booking.roomId,
-                                              bookingDate: date,
-                                              startTime: booking.startTime,
-                                              endTime: booking.endTime,
-                                            })
-                                          }
-                                        >
-                                          Modify
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="destructive"
-                                          className="h-6 text-xs"
-                                          disabled={cancellingId === booking.id}
-                                          onClick={() => handleCancelBooking(booking.id!)}
-                                        >
-                                          {cancellingId === booking.id ? 'Cancelling…' : 'Cancel'}
-                                        </Button>
-                                      </div>
-                                    )}
+                                    {booking.id && (() => {
+                                      const bookingId = booking.id;
+                                      return (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-6 text-xs"
+                                            onClick={() =>
+                                              setModifyBooking({
+                                                id: bookingId,
+                                                roomId: booking.roomId,
+                                                bookingDate: date,
+                                                startTime: booking.startTime,
+                                                endTime: booking.endTime,
+                                              })
+                                            }
+                                          >
+                                            Modify
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="destructive"
+                                            className="h-6 text-xs"
+                                            disabled={cancellingId === bookingId}
+                                            onClick={() => handleCancelBooking(bookingId)}
+                                          >
+                                            {cancellingId === bookingId ? 'Cancelling…' : 'Cancel'}
+                                          </Button>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </td>
                               );

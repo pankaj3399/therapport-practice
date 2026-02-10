@@ -39,6 +39,60 @@ export interface CreditSummaryResult {
 }
 
 /**
+ * Revoke pay-the-difference credits for a given user and sourceId.
+ * Intended for rollback when a booking update fails after granting credits.
+ * Idempotent: if no matching transactions are found, this is a no-op.
+ */
+export async function revokePayDifferenceCredits(
+  userId: string,
+  sourceId: string
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(creditTransactions)
+      .where(
+        and(
+          eq(creditTransactions.userId, userId),
+          eq(creditTransactions.sourceType, 'pay_difference'),
+          eq(creditTransactions.sourceId, sourceId)
+        )
+      )
+      .for('update');
+
+    if (rows.length === 0) {
+      // Nothing to revoke (already revoked or never granted).
+      return;
+    }
+
+    for (const row of rows) {
+      const amount = parseFloat(row.amount.toString());
+      const usedAmount = parseFloat(row.usedAmount.toString());
+      const remainingAmount = parseFloat(row.remainingAmount.toString());
+
+      if (usedAmount !== 0 || remainingAmount !== amount) {
+        logger.error('Cannot revoke pay-difference credits that have been used or partially spent', {
+          transactionId: row.id,
+          userId,
+          sourceId,
+          amount,
+          usedAmount,
+          remainingAmount,
+        });
+        throw new Error('Cannot revoke pay-difference credits that have been used or partially spent');
+      }
+
+      await tx.delete(creditTransactions).where(eq(creditTransactions.id, row.id));
+      logger.info('Revoked pay-difference credits transaction', {
+        transactionId: row.id,
+        userId,
+        sourceId,
+      });
+    }
+  });
+}
+
+/**
  * Grant credits to a user. Creates a new credit transaction.
  */
 export async function grantCredits(

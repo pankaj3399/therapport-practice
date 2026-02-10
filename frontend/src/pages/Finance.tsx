@@ -10,17 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Icon } from '@/components/ui/Icon';
-import { practitionerApi } from '@/services/api';
-
-type InvoiceItem = {
-  id: string;
-  number: string | null;
-  status: string;
-  amount_paid: number;
-  currency: string;
-  created: number;
-  invoice_pdf: string | null;
-};
+import { practitionerApi, InvoiceItem } from '@/services/api';
 
 function formatAmount(pence: number, currency: string): string {
   if (currency === 'gbp') return `£${(pence / 100).toFixed(2)}`;

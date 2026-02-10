@@ -238,24 +238,42 @@ export const PractitionerManagement: React.FC = () => {
 
   const handleSaveProfile = async () => {
     if (!selectedPractitioner) return;
+
+    setSaving(true);
     try {
-      setSaving(true);
       const updateData = {
         firstName: profileForm.firstName,
         lastName: profileForm.lastName,
         phone: profileForm.phone || undefined,
         status: profileForm.status,
       };
-      await adminApi.updatePractitioner(selectedPractitioner.id, updateData);
-      // Refresh data locally to avoid full reload flicker
-      await handleSelectPractitioner(selectedPractitioner.id);
-      await fetchPractitioners();
-      setMessageWithTimeout({ type: 'success', text: 'Profile updated successfully' });
-    } catch (error: any) {
-      setMessageWithTimeout({
-        type: 'error',
-        text: error.response?.data?.error || 'Failed to update profile',
-      });
+
+      // Stage 1: update practitioner profile
+      try {
+        await adminApi.updatePractitioner(selectedPractitioner.id, updateData);
+      } catch (error: any) {
+        setMessageWithTimeout({
+          type: 'error',
+          text: error.response?.data?.error || 'Failed to update profile',
+        });
+        return;
+      }
+
+      // Stage 2: refresh local data
+      try {
+        await handleSelectPractitioner(selectedPractitioner.id);
+        await fetchPractitioners();
+        setMessageWithTimeout({ type: 'success', text: 'Profile updated successfully' });
+      } catch (error: any) {
+        console.error(
+          'Profile updated but failed to refresh practitioner list/details',
+          error
+        );
+        setMessageWithTimeout({
+          type: 'error',
+          text: 'Profile updated but failed to refresh. Please reload the page.',
+        });
+      }
     } finally {
       setSaving(false);
     }

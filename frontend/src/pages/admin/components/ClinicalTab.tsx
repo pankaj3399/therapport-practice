@@ -9,7 +9,16 @@ import { adminApi } from '@/services/api';
 
 const isExpired = (dateStr: string | null) => {
   if (!dateStr) return false;
-  return new Date(dateStr) < new Date();
+
+  const expiryDateStr = dateStr.split('T')[0];
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
+
+  return expiryDateStr < todayStr;
 };
 
 const formatDate = (dateStr: string) => {
