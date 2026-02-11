@@ -2,13 +2,20 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { ThemeToggle } from '../theme/ThemeToggle';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/context/AuthContext';
 import { practitionerNavItems, adminNavItems } from './navConfig';
 import { cn } from '@/lib/utils';
 
+const getInitials = (firstName?: string, lastName?: string) => {
+  const first = firstName?.charAt(0) || '';
+  const last = lastName?.charAt(0) || '';
+  return `${first}${last}`.toUpperCase() || 'U';
+};
+
 export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const location = useLocation();
   const isAdmin = user?.role === 'admin';
   const navItems = (isAdmin ? adminNavItems : practitionerNavItems).filter(
@@ -45,14 +52,14 @@ export const Header: React.FC = () => {
       )}
       <div
         className={cn(
-          'lg:hidden fixed top-0 left-0 z-50 h-full w-72 max-w-[85vw] bg-surface-light dark:bg-surface-dark border-r border-slate-200 dark:border-slate-800 shadow-xl transition-transform duration-200 ease-out',
+          'lg:hidden fixed top-0 left-0 z-50 h-full w-72 max-w-[85vw] bg-surface-light dark:bg-surface-dark border-r border-slate-200 dark:border-slate-800 shadow-xl transition-transform duration-200 ease-out flex flex-col',
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         )}
         aria-modal="true"
         aria-label="Navigation menu"
         role="dialog"
       >
-        <nav className="flex flex-col gap-1 p-4 pt-16">
+        <nav className="flex flex-col gap-1 p-4 pt-16 flex-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -75,6 +82,33 @@ export const Header: React.FC = () => {
             );
           })}
         </nav>
+        <div className="flex items-center gap-3 p-4 border-t border-slate-200 dark:border-slate-800">
+          <Avatar className="h-10 w-10 shrink-0">
+            <AvatarImage src={user?.photoUrl} alt={`${user?.firstName} ${user?.lastName}`} />
+            <AvatarFallback className="bg-primary/10 text-primary font-bold">
+              {getInitials(user?.firstName, user?.lastName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+              {user?.firstName} {user?.lastName}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {isAdmin ? 'Administrator' : 'Practitioner'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setMobileMenuOpen(false);
+              logout();
+            }}
+            className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-2"
+            aria-label="Logout"
+          >
+            <Icon name="logout" className="text-xl" />
+          </button>
+        </div>
       </div>
     </>
   );

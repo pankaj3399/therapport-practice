@@ -1,6 +1,6 @@
 {
-  "id": "604b9218-d570-4dc5-8944-790dfbd17eb2",
-  "prevId": "6fe72c20-31a4-4cae-9790-20604c464222",
+  "id": "a5167c03-89d3-4e35-a9ed-cd06bcb0cc4d",
+  "prevId": "79f76d78-4fe3-4b39-8b53-89d3d8e4f940",
   "version": "5",
   "dialect": "pg",
   "tables": {
@@ -62,6 +62,20 @@
           "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": true
+        },
+        "credit_used": {
+          "name": "credit_used",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
+        },
+        "voucher_hours_used": {
+          "name": "voucher_hours_used",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
         },
         "status": {
           "name": "status",
@@ -1202,117 +1216,6 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
-    "stripe_payments": {
-      "name": "stripe_payments",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stripe_payment_intent_id": {
-          "name": "stripe_payment_intent_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stripe_customer_id": {
-          "name": "stripe_customer_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(10, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "currency": {
-          "name": "currency",
-          "type": "varchar(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'gbp'"
-        },
-        "status": {
-          "name": "status",
-          "type": "payment_status",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "payment_type": {
-          "name": "payment_type",
-          "type": "payment_type",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "stripe_payments_user_id_idx": {
-          "name": "stripe_payments_user_id_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "stripe_payments_user_id_users_id_fk": {
-          "name": "stripe_payments_user_id_users_id_fk",
-          "tableFrom": "stripe_payments",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "stripe_payments_stripe_payment_intent_id_unique": {
-          "name": "stripe_payments_stripe_payment_intent_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "stripe_payment_intent_id"
-          ]
-        }
-      }
-    },
     "users": {
       "name": "users",
       "schema": "",
@@ -1491,23 +1394,6 @@
         "pending": "pending",
         "sent": "sent",
         "failed": "failed"
-      }
-    },
-    "payment_status": {
-      "name": "payment_status",
-      "values": {
-        "pending": "pending",
-        "succeeded": "succeeded",
-        "failed": "failed",
-        "canceled": "canceled"
-      }
-    },
-    "payment_type": {
-      "name": "payment_type",
-      "values": {
-        "subscription": "subscription",
-        "ad_hoc_subscription": "ad_hoc_subscription",
-        "pay_difference": "pay_difference"
       }
     },
     "subscription_type": {

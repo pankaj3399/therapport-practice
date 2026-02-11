@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { bookings, rooms, locations, memberships, users, freeBookingVouchers } from '../db/schema';
-import { eq, and, gte, lte, asc, inArray } from 'drizzle-orm';
+import { eq, and, gte, gt, lte, asc, inArray, not } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { todayUtcString, formatTimeForEmail } from '../utils/date.util';
 import { fromZonedTime } from 'date-fns-tz';
@@ -8,10 +8,15 @@ import * as PricingService from './pricing.service';
 import * as CreditTransactionService from './credit-transaction.service';
 import * as StripePaymentService from './stripe-payment.service';
 import { VoucherService } from './voucher.service';
-import { BookingValidationError, BookingNotFoundError } from '../errors/booking.errors';
+import {
+  BookingValidationError,
+  BookingNotFoundError,
+  PaymentRequiredError,
+} from '../errors/booking.errors';
 import { logger } from '../utils/logger.util';
 import { emailService } from './email.service';
 import { isStripeConfigured } from '../config/stripe';
+import type { CreditTransactionClient } from './credit-transaction.service';
 
 type LocationName = PricingService.LocationName;
 
@@ -105,6 +110,29 @@ async function getRoomWithLocation(
 }
 
 /**
+ * Get room with location using transaction client (for use inside db.transaction).
+ */
+async function getRoomWithLocationTx(
+  tx: CreditTransactionClient,
+  roomId: string
+): Promise<{ room: typeof rooms.$inferSelect; locationName: LocationName }> {
+  const rows = await tx
+    .select({ room: rooms, locationName: locations.name })
+    .from(rooms)
+    .innerJoin(locations, eq(rooms.locationId, locations.id))
+    .where(eq(rooms.id, roomId))
+    .limit(1);
+  if (!rows.length) throw new BookingNotFoundError('Room not found');
+  const loc = rows[0].locationName as string;
+  if (!ALLOWED_LOCATIONS.includes(loc as LocationName)) {
+    throw new BookingValidationError(
+      `Invalid location: ${loc}. Allowed: ${ALLOWED_LOCATIONS.join(', ')}`
+    );
+  }
+  return { room: rows[0].room, locationName: loc as LocationName };
+}
+
+/**
  * Check availability: no overlapping confirmed booking for same room on same date.
  */
 export async function checkAvailability(
@@ -123,6 +151,63 @@ export async function checkAvailability(
         eq(bookings.roomId, roomId),
         eq(bookings.bookingDate, date),
         eq(bookings.status, 'confirmed'),
+        sql`${bookings.startTime} < ${end}::time AND ${bookings.endTime} > ${start}::time`
+      )
+    )
+    .limit(1);
+  return overlapping.length === 0;
+}
+
+/**
+ * Check availability excluding a booking id (for update).
+ */
+export async function checkAvailabilityExcluding(
+  roomId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeBookingId: string
+): Promise<boolean> {
+  const start = toTimeString(startTime);
+  const end = toTimeString(endTime);
+  const overlapping = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.roomId, roomId),
+        eq(bookings.bookingDate, date),
+        eq(bookings.status, 'confirmed'),
+        not(eq(bookings.id, excludeBookingId)),
+        sql`${bookings.startTime} < ${end}::time AND ${bookings.endTime} > ${start}::time`
+      )
+    )
+    .limit(1);
+  return overlapping.length === 0;
+}
+
+/**
+ * Check availability excluding a booking id, using transaction client (for use inside db.transaction).
+ */
+async function checkAvailabilityExcludingTx(
+  tx: CreditTransactionClient,
+  roomId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeBookingId: string
+): Promise<boolean> {
+  const start = toTimeString(startTime);
+  const end = toTimeString(endTime);
+  const overlapping = await tx
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.roomId, roomId),
+        eq(bookings.bookingDate, date),
+        eq(bookings.status, 'confirmed'),
+        not(eq(bookings.id, excludeBookingId)),
         sql`${bookings.startTime} < ${end}::time AND ${bookings.endTime} > ${start}::time`
       )
     )
@@ -153,12 +238,18 @@ async function getConfirmedBookingsForRoomDate(
     return {
       startTime: toTimeString(
         typeof st === 'object' && st instanceof Date
-          ? `${st.getUTCHours().toString().padStart(2, '0')}:${st.getUTCMinutes().toString().padStart(2, '0')}:${st.getUTCSeconds().toString().padStart(2, '0')}`
+          ? `${st.getUTCHours().toString().padStart(2, '0')}:${st
+              .getUTCMinutes()
+              .toString()
+              .padStart(2, '0')}:${st.getUTCSeconds().toString().padStart(2, '0')}`
           : String(st)
       ),
       endTime: toTimeString(
         typeof et === 'object' && et instanceof Date
-          ? `${et.getUTCHours().toString().padStart(2, '0')}:${et.getUTCMinutes().toString().padStart(2, '0')}:${et.getUTCSeconds().toString().padStart(2, '0')}`
+          ? `${et.getUTCHours().toString().padStart(2, '0')}:${et
+              .getUTCMinutes()
+              .toString()
+              .padStart(2, '0')}:${et.getUTCSeconds().toString().padStart(2, '0')}`
           : String(et)
       ),
     };
@@ -215,7 +306,10 @@ function formatTimeHHMM(t: string | Date): string {
     return t.length >= 5 ? t.slice(0, 5) : t;
   }
   const d = t as Date;
-  return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+  return `${d.getUTCHours().toString().padStart(2, '0')}:${d
+    .getUTCMinutes()
+    .toString()
+    .padStart(2, '0')}`;
 }
 
 export interface DayCalendarRoom {
@@ -224,6 +318,7 @@ export interface DayCalendarRoom {
 }
 
 export interface DayCalendarBooking {
+  id?: string;
   roomId: string;
   startTime: string;
   endTime: string;
@@ -232,6 +327,7 @@ export interface DayCalendarBooking {
 
 function mapRowToDayCalendarBooking(
   row: {
+    id?: string;
     roomId: string;
     startTime: string | Date;
     endTime: string | Date;
@@ -245,6 +341,7 @@ function mapRowToDayCalendarBooking(
     startTime: formatTimeHHMM(row.startTime),
     endTime: formatTimeHHMM(row.endTime),
   };
+  if (row.id) booking.id = row.id;
   if (includeBookerNames && row.firstName !== undefined && row.lastName !== undefined) {
     booking.bookerName =
       [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || undefined;
@@ -276,6 +373,7 @@ export async function getDayCalendar(
   if (includeBookerNames) {
     const rows = await db
       .select({
+        id: bookings.id,
         roomId: bookings.roomId,
         startTime: bookings.startTime,
         endTime: bookings.endTime,
@@ -464,7 +562,9 @@ export async function createBooking(
       // Rounding made difference zero; proceed with booking using available credits
     } else if (!isStripeConfigured()) {
       throw new BookingValidationError(
-        `Insufficient credits. You need £${creditAmountNeeded.toFixed(2)} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
+        `Insufficient credits. You need £${creditAmountNeeded.toFixed(
+          2
+        )} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
       );
     } else {
       const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
@@ -531,6 +631,8 @@ export async function createBooking(
         endTime: endTimeDb,
         pricePerHour: pricePerHour.toFixed(2),
         totalPrice: totalPrice.toFixed(2),
+        creditUsed: creditAmountNeeded.toFixed(2),
+        voucherHoursUsed: voucherHoursToUse.toFixed(2),
         status: 'confirmed',
         bookingType,
       })
@@ -632,10 +734,7 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       throw new BookingValidationError('Booking is already cancelled');
 
     const bookingDateStr = String(booking.bookingDate);
-    const startTimeStr =
-      typeof booking.startTime === 'string'
-        ? booking.startTime.slice(0, 5)
-        : `${(booking.startTime as Date).getUTCHours().toString().padStart(2, '0')}:${(booking.startTime as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+    const startTimeStr = formatTimeHHMM(booking.startTime as string | Date);
     const [y, mo, d] = bookingDateStr.split('-').map(Number);
     const [hh, mm] = startTimeStr.split(':').map(Number);
     const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
@@ -648,7 +747,10 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       );
     }
 
-    const totalPrice = parseFloat(booking.totalPrice.toString());
+    const refundAmount =
+      booking.creditUsed === null
+        ? parseFloat(booking.totalPrice.toString())
+        : parseFloat(String(booking.creditUsed ?? 0));
     await tx
       .update(bookings)
       .set({
@@ -659,7 +761,7 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       })
       .where(eq(bookings.id, bookingId));
 
-    if (totalPrice > 0) {
+    if (refundAmount > 0) {
       const bookingDate = String(booking.bookingDate);
       if (!/^\d{4}-\d{2}(-\d{2})?$/.test(bookingDate)) {
         throw new BookingValidationError(
@@ -680,14 +782,14 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       logger.info('Manual end-of-month grant created for booking cancellation', {
         bookingId,
         bookingDate: booking.bookingDate,
-        totalPrice,
+        refundAmount,
         expiryDate,
         grantType: 'manual',
       });
       await CreditTransactionService.grantCreditsWithinTransaction(
         tx,
         userId,
-        totalPrice,
+        refundAmount,
         expiryDate,
         'manual',
         undefined,
@@ -703,7 +805,7 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
       bookingDate: String(booking.bookingDate),
       startTime: formatTimeForEmail(booking.startTime as string | Date),
       endTime: formatTimeForEmail(booking.endTime as string | Date),
-      refundAmount: totalPrice.toFixed(2),
+      refundAmount: refundAmount.toFixed(2),
     };
   });
 
@@ -714,6 +816,418 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
         bookingId,
       })
     );
+  }
+}
+
+/**
+ * Get booking owner userId by booking id (for admin cancel).
+ */
+export async function getBookingOwnerId(bookingId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ userId: bookings.userId })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+export type UpdateBookingParams = {
+  roomId?: string;
+  bookingDate?: string;
+  startTime?: string;
+  endTime?: string;
+};
+
+export type UpdateBookingPaymentRequired = {
+  paymentRequired: true;
+  clientSecret: string;
+  paymentIntentId: string;
+  amountPence: number;
+};
+
+class BookingUpdatePaymentComputationError extends Error {
+  constructor(
+    public readonly payload: {
+      userId: string;
+      bookingId: string;
+      newRoomId: string;
+      newDate: string;
+      newStartTime: string;
+      newEndTime: string;
+      amountToPayPence: number;
+      stripeCustomerId?: string | null;
+    }
+  ) {
+    super('Payment required for booking update (computed inside transaction)');
+  }
+}
+
+/**
+ * Update booking date/time/room. Caller must be owner or admin. 24h before start required.
+ * Recalculates price from new room/date/times. Runs in a single DB transaction: re-fetches and
+ * locks the booking row, validates, checks availability, reconciles credit/voucher usage for
+ * price delta, then updates the booking. When voucher hours are short, attempts to cover
+ * shortfall with credits or Stripe (payment required); only throws when payment/coverage fails.
+ * Thrown errors roll back the transaction.
+ */
+export async function updateBooking(
+  bookingId: string,
+  requesterUserId: string,
+  isAdmin: boolean,
+  updates: UpdateBookingParams
+): Promise<void | UpdateBookingPaymentRequired> {
+  try {
+    // First, run a transaction that performs all validation and computes any required
+    // payment amount while holding the necessary row locks. The transaction is rolled
+    // back when payment is required so no changes are persisted before Stripe is called.
+    const result = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        booking: bookings,
+        roomName: rooms.name,
+        locationName: locations.name,
+      })
+      .from(bookings)
+      .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+      .innerJoin(locations, eq(rooms.locationId, locations.id))
+      .where(
+        isAdmin
+          ? eq(bookings.id, bookingId)
+          : and(eq(bookings.id, bookingId), eq(bookings.userId, requesterUserId))
+      )
+      .limit(1)
+      .for('update');
+
+    if (!row) throw new BookingNotFoundError('Booking not found');
+    const booking = row.booking;
+    if (booking.status === 'cancelled')
+      throw new BookingValidationError('Booking is already cancelled');
+
+    const userId = booking.userId;
+    const bookingDateStr = String(booking.bookingDate);
+    const startTimeStr = formatTimeHHMM(booking.startTime as string | Date);
+    const endTimeStr = formatTimeHHMM(booking.endTime as string | Date);
+    const [y, mo, d] = bookingDateStr.split('-').map(Number);
+    const [hh, mm] = startTimeStr.split(':').map(Number);
+    const bookingStartLocal = new Date(y, mo - 1, d, hh, mm, 0);
+    const bookingStartUtc = fromZonedTime(bookingStartLocal, 'Europe/London');
+    const now = new Date();
+    const minChangeBy = bookingStartUtc.getTime() - 24 * 60 * 60 * 1000;
+    if (now.getTime() > minChangeBy) {
+      throw new BookingValidationError(
+        'Changes with less than 24 hours before start are not permitted'
+      );
+    }
+
+    const newRoomId = updates.roomId ?? booking.roomId;
+    const newDate = updates.bookingDate ?? bookingDateStr;
+    const newStartTime = updates.startTime ?? startTimeStr;
+    const newEndTime = updates.endTime ?? endTimeStr;
+
+    const changed =
+      newRoomId !== booking.roomId ||
+      newDate !== bookingDateStr ||
+      newStartTime !== startTimeStr ||
+      newEndTime !== endTimeStr;
+
+    let locationName: LocationName;
+    if (changed) {
+      const today = todayUtcString();
+      if (newDate < today)
+        throw new BookingValidationError('Booking date must be today or in the future');
+      const [by, bmo, bd] = newDate.split('-').map(Number);
+      const startPart = newStartTime.trim().slice(0, 5);
+      const [nHH, nMM] = startPart.split(':').map(Number);
+      const newStartLocal = new Date(by, bmo - 1, bd, nHH, nMM, 0);
+      const newStartUtc = fromZonedTime(newStartLocal, 'Europe/London');
+      if (newStartUtc.getTime() <= Date.now()) {
+        throw new BookingValidationError('Cannot move booking to a time that has already passed');
+      }
+      const [ty, tm, td] = today.split('-').map(Number);
+      const maxDate = new Date(Date.UTC(ty, tm - 1, td));
+      maxDate.setUTCMonth(maxDate.getUTCMonth() + 1);
+      const maxDateStr = maxDate.toISOString().split('T')[0];
+      if (newDate > maxDateStr) {
+        throw new BookingValidationError('Bookings can only be up to 1 month in advance');
+      }
+      const roomWithLoc = await getRoomWithLocationTx(tx, newRoomId);
+      locationName = roomWithLoc.locationName;
+      try {
+        PricingService.calculateTotalPrice(
+          locationName,
+          new Date(newDate + 'T12:00:00Z'),
+          newStartTime,
+          newEndTime
+        );
+      } catch (e) {
+        throw new BookingValidationError(e instanceof Error ? e.message : 'Invalid time window');
+      }
+      const available = await checkAvailabilityExcludingTx(
+        tx,
+        newRoomId,
+        newDate,
+        newStartTime,
+        newEndTime,
+        bookingId
+      );
+      if (!available) throw new BookingValidationError('Time slot is not available');
+    } else {
+      locationName = row.locationName as LocationName;
+    }
+
+    const dateObj = new Date(newDate + 'T12:00:00Z');
+    const totalPrice = PricingService.calculateTotalPrice(
+      locationName,
+      dateObj,
+      newStartTime,
+      newEndTime
+    );
+
+    const startTimeDb = toTimeString(
+      typeof newStartTime === 'string'
+        ? newStartTime
+        : new Date(newStartTime).toTimeString().slice(0, 8)
+    );
+    const endTimeDb = toTimeString(
+      typeof newEndTime === 'string' ? newEndTime : new Date(newEndTime).toTimeString().slice(0, 8)
+    );
+
+    const durationHours =
+      (parseInt(endTimeDb.slice(0, 2), 10) * 60 +
+        parseInt(endTimeDb.slice(3, 5), 10) -
+        (parseInt(startTimeDb.slice(0, 2), 10) * 60 + parseInt(startTimeDb.slice(3, 5), 10))) /
+      60;
+    const pricePerHour = durationHours > 0 ? totalPrice / durationHours : totalPrice;
+
+    const oldCreditUsed = parseFloat(String(booking.creditUsed ?? 0));
+    const oldVoucherHoursUsed = parseFloat(String(booking.voucherHoursUsed ?? 0));
+
+    const todayStr = todayUtcString();
+    const voucherRows = await tx
+      .select()
+      .from(freeBookingVouchers)
+      .where(
+        and(
+          eq(freeBookingVouchers.userId, userId),
+          gte(freeBookingVouchers.expiryDate, todayStr)
+        )
+      )
+      .orderBy(asc(freeBookingVouchers.expiryDate));
+    const remainingVoucherHours = voucherRows.reduce((sum, v) => {
+      const used = parseFloat(v.hoursUsed.toString());
+      const allocated = parseFloat(v.hoursAllocated.toString());
+      return sum + Math.max(0, allocated - used);
+    }, 0);
+    const effectiveAvailableVoucherHours = remainingVoucherHours + oldVoucherHoursUsed;
+
+    const newVoucherHoursToUse = Math.min(effectiveAvailableVoucherHours, durationHours);
+    const totalPriceCents = Math.round(totalPrice * 100);
+    const newCreditNeeded =
+      newVoucherHoursToUse >= durationHours
+        ? 0
+        : Math.round((totalPriceCents * (durationHours - newVoucherHoursToUse)) / durationHours) /
+          100;
+
+    const creditDelta = newCreditNeeded - oldCreditUsed;
+    const voucherHoursDelta = newVoucherHoursToUse - oldVoucherHoursUsed;
+
+    let finalCreditUsed = newCreditNeeded;
+    let finalVoucherHoursUsed = newVoucherHoursToUse;
+
+    if (creditDelta > 0) {
+      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditDelta);
+    } else if (creditDelta < 0) {
+      const [by, bmo] = newDate.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(by, bmo, 0));
+      const expiryDate = lastDay.toISOString().split('T')[0];
+      await CreditTransactionService.grantCreditsWithinTransaction(
+        tx,
+        userId,
+        Math.abs(creditDelta),
+        expiryDate,
+        'manual',
+        undefined,
+        'Refund for booking update'
+      );
+    }
+
+    if (voucherHoursDelta > 0) {
+      const remainingForDeduct = voucherRows.reduce((sum, v) => {
+        const used = parseFloat(v.hoursUsed.toString());
+        const allocated = parseFloat(v.hoursAllocated.toString());
+        return sum + Math.max(0, allocated - used);
+      }, 0);
+
+      const actualVoucherDeduct = Math.min(voucherHoursDelta, remainingForDeduct);
+      const hasShortfall = remainingForDeduct < voucherHoursDelta;
+
+      if (hasShortfall) {
+        const shortfall = voucherHoursDelta - remainingForDeduct;
+        const shortfallCredit = (totalPriceCents * shortfall) / durationHours / 100;
+        const totalCreditToUse = (creditDelta > 0 ? creditDelta : 0) + shortfallCredit;
+        const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId);
+        if (totalAvailable < totalCreditToUse) {
+          const amountToPayGBP = totalCreditToUse - totalAvailable;
+          const amountToPayPence = Math.round(amountToPayGBP * 100);
+          if (amountToPayPence <= 0) {
+            // Rounding made difference zero; proceed with available credits
+          } else if (!isStripeConfigured()) {
+            throw new BookingValidationError(
+              `Insufficient credits to cover the voucher shortfall. You need £${totalCreditToUse.toFixed(
+                2
+              )} but have £${totalAvailable.toFixed(
+                2
+              )}. Payment is not configured.`
+            );
+          } else {
+            const [membership] = await tx
+              .select()
+              .from(memberships)
+              .where(eq(memberships.userId, userId))
+              .limit(1);
+            if (!membership) throw new BookingValidationError('No membership');
+            // Compute everything needed for payment while holding the DB locks,
+            // then signal to the outer scope to perform the Stripe call.
+            throw new BookingUpdatePaymentComputationError({
+              userId,
+              bookingId,
+              newRoomId,
+              newDate,
+              newStartTime,
+              newEndTime,
+              amountToPayPence,
+              stripeCustomerId: membership.stripeCustomerId,
+            });
+          }
+        }
+        await CreditTransactionService.useCreditsWithinTransaction(
+          tx,
+          userId,
+          shortfallCredit
+        );
+        finalCreditUsed = newCreditNeeded + shortfallCredit;
+        finalVoucherHoursUsed = oldVoucherHoursUsed + actualVoucherDeduct;
+      }
+
+      let remainingToDeduct = actualVoucherDeduct;
+      for (const v of voucherRows) {
+        if (remainingToDeduct <= 0) break;
+        const used = parseFloat(v.hoursUsed.toString());
+        const allocated = parseFloat(v.hoursAllocated.toString());
+        const remaining = allocated - used;
+        const deduct = Math.min(remaining, remainingToDeduct);
+        await tx
+          .update(freeBookingVouchers)
+          .set({
+            hoursUsed: (used + deduct).toFixed(2),
+            updatedAt: new Date(),
+          })
+          .where(eq(freeBookingVouchers.id, v.id));
+        remainingToDeduct -= deduct;
+      }
+    } else if (voucherHoursDelta < 0) {
+      const releaseHours = Math.abs(voucherHoursDelta);
+      const rowsWithUsed = await tx
+        .select()
+        .from(freeBookingVouchers)
+        .where(
+          and(
+            eq(freeBookingVouchers.userId, userId),
+            gt(freeBookingVouchers.hoursUsed, '0')
+          )
+        )
+        .orderBy(asc(freeBookingVouchers.expiryDate));
+      let remainingToRelease = releaseHours;
+      for (const v of rowsWithUsed) {
+        if (remainingToRelease <= 0) break;
+        const used = parseFloat(v.hoursUsed.toString());
+        const release = Math.min(used, remainingToRelease);
+        await tx
+          .update(freeBookingVouchers)
+          .set({
+            hoursUsed: (used - release).toFixed(2),
+            updatedAt: new Date(),
+          })
+          .where(eq(freeBookingVouchers.id, v.id));
+        remainingToRelease -= release;
+      }
+    }
+
+    await tx
+      .update(bookings)
+      .set({
+        roomId: newRoomId,
+        bookingDate: newDate,
+        startTime: startTimeDb,
+        endTime: endTimeDb,
+        totalPrice: totalPrice.toFixed(2),
+        pricePerHour: pricePerHour.toFixed(2),
+        creditUsed: finalCreditUsed.toFixed(2),
+        voucherHoursUsed: finalVoucherHoursUsed.toFixed(2),
+        updatedAt: new Date(),
+      })
+      .where(eq(bookings.id, bookingId));
+
+      return;
+    });
+    return result;
+  } catch (err) {
+    if (err instanceof BookingUpdatePaymentComputationError) {
+      const {
+        userId,
+        bookingId: bookingIdForMetadata,
+        newRoomId,
+        newDate,
+        newStartTime,
+        newEndTime,
+        amountToPayPence,
+        stripeCustomerId,
+      } = err.payload;
+
+      const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
+        amount: amountToPayPence,
+        currency: 'gbp',
+        customerId: stripeCustomerId ?? undefined,
+        metadata: {
+          type: 'pay_the_difference_update',
+          userId,
+          bookingId: bookingIdForMetadata,
+          roomId: newRoomId,
+          bookingDate: newDate,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          expectedAmountPence: String(amountToPayPence),
+        },
+        description: 'Pay the difference for booking update',
+      });
+
+      // Now that the transaction has been rolled back and the DB locks released,
+      // throw the existing PaymentRequiredError so the API returns the same payload.
+      const paymentError = new PaymentRequiredError('Payment required for booking update', {
+        clientSecret,
+        paymentIntentId,
+        amountPence: amountToPayPence,
+      });
+
+      if (paymentError instanceof PaymentRequiredError) {
+        return {
+          paymentRequired: true,
+          clientSecret: paymentError.payload.clientSecret,
+          paymentIntentId: paymentError.payload.paymentIntentId,
+          amountPence: paymentError.payload.amountPence,
+        };
+      }
+    }
+
+    if (err instanceof PaymentRequiredError) {
+      return {
+        paymentRequired: true,
+        clientSecret: err.payload.clientSecret,
+        paymentIntentId: err.payload.paymentIntentId,
+        amountPence: err.payload.amountPence,
+      };
+    }
+    throw err;
   }
 }
 
@@ -817,7 +1331,10 @@ function formatTimeForDisplay(t: string | Date): string {
   const str =
     typeof t === 'string'
       ? t.slice(0, 5)
-      : `${(t as Date).getUTCHours().toString().padStart(2, '0')}:${(t as Date).getUTCMinutes().toString().padStart(2, '0')}`;
+      : `${(t as Date).getUTCHours().toString().padStart(2, '0')}:${(t as Date)
+          .getUTCMinutes()
+          .toString()
+          .padStart(2, '0')}`;
   const [hh, mm] = str.split(':').map(Number);
   const h = hh % 12 || 12;
   const m = mm;

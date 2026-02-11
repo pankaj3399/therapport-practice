@@ -19,6 +19,7 @@ export interface CreditTransactionRow {
   expiryDate: string;
   sourceType: CreditSourceType;
   description: string | null;
+  revoked: boolean;
 }
 
 export interface UseCreditsResult {
@@ -36,6 +37,66 @@ export interface CreditSummaryResult {
   totalAvailable: number;
   byExpiry: CreditSummaryByExpiry[];
   transactions: CreditTransactionRow[];
+}
+
+/**
+ * Revoke pay-the-difference credits for a given user and sourceId.
+ * Intended for rollback when a booking update fails after granting credits.
+ * Idempotent: if no matching transactions are found, this is a no-op.
+ */
+export async function revokePayDifferenceCredits(
+  userId: string,
+  sourceId: string
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(creditTransactions)
+      .where(
+        and(
+          eq(creditTransactions.userId, userId),
+          eq(creditTransactions.sourceType, 'pay_difference'),
+          eq(creditTransactions.sourceId, sourceId)
+        )
+      )
+      .for('update');
+
+    if (rows.length === 0) {
+      // Nothing to revoke (already revoked or never granted).
+      return;
+    }
+
+    for (const row of rows) {
+      const amount = parseFloat(row.amount.toString());
+      const usedAmount = parseFloat(row.usedAmount.toString());
+      const remainingAmount = parseFloat(row.remainingAmount.toString());
+
+      if (usedAmount !== 0 || remainingAmount !== amount) {
+        logger.error('Cannot revoke pay-difference credits that have been used or partially spent', {
+          transactionId: row.id,
+          userId,
+          sourceId,
+          amount,
+          usedAmount,
+          remainingAmount,
+        });
+        throw new Error('Cannot revoke pay-difference credits that have been used or partially spent');
+      }
+
+      await tx
+        .update(creditTransactions)
+        .set({
+          revoked: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(creditTransactions.id, row.id));
+      logger.info('Marked pay-difference credits transaction as revoked', {
+        transactionId: row.id,
+        userId,
+        sourceId,
+      });
+    }
+  });
 }
 
 /**
@@ -75,6 +136,29 @@ export async function grantCredits(
     .returning({ id: creditTransactions.id });
   if (!row) throw new Error('Failed to create credit transaction');
   return row.id;
+}
+
+/**
+ * Returns true if the user already has a credit transaction with the given sourceType and sourceId.
+ * Used to avoid duplicate grants for the same Stripe payment (e.g. webhook retries).
+ */
+export async function hasCreditForSourceId(
+  userId: string,
+  sourceType: CreditSourceType,
+  sourceId: string
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: creditTransactions.id })
+    .from(creditTransactions)
+    .where(
+      and(
+        eq(creditTransactions.userId, userId),
+        eq(creditTransactions.sourceType, sourceType),
+        eq(creditTransactions.sourceId, sourceId)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -130,6 +214,7 @@ export async function getAvailableCredits(
     .where(
       and(
         eq(creditTransactions.userId, userId),
+        eq(creditTransactions.revoked, false),
         gte(creditTransactions.expiryDate, dateStr),
         sql`${creditTransactions.remainingAmount} > 0`
       )
@@ -144,6 +229,7 @@ export async function getAvailableCredits(
     expiryDate: r.expiryDate,
     sourceType: r.sourceType as CreditSourceType,
     description: r.description,
+    revoked: !!r.revoked,
   }));
 }
 
@@ -167,6 +253,7 @@ export async function useCreditsWithinTransaction(
     .where(
       and(
         eq(creditTransactions.userId, userId),
+        eq(creditTransactions.revoked, false),
         gte(creditTransactions.expiryDate, todayUtcString()),
         sql`${creditTransactions.remainingAmount} > 0`
       )
@@ -302,7 +389,7 @@ export async function getCreditBalanceTotals(
       totalUsed: sql<number | string>`COALESCE(SUM(${creditTransactions.usedAmount}), 0)`,
       totalAvailable: sql<
         number | string
-      >`COALESCE(SUM(CASE WHEN ${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 THEN ${creditTransactions.remainingAmount} ELSE 0 END), 0)`,
+      >`COALESCE(SUM(CASE WHEN ${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 AND ${creditTransactions.revoked} = false THEN ${creditTransactions.remainingAmount} ELSE 0 END), 0)`,
     })
     .from(creditTransactions)
     .where(eq(creditTransactions.userId, userId));

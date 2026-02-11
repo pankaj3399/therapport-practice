@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { getStripe, STRIPE_WEBHOOK_SECRET } from '../config/stripe';
@@ -5,6 +6,35 @@ import { logger } from '../utils/logger.util';
 import * as SubscriptionService from '../services/subscription.service';
 import * as BookingService from '../services/booking.service';
 import * as CreditTransactionService from '../services/credit-transaction.service';
+
+/** Deterministic UUID from Stripe payment intent id for use as credit sourceId (DB source_id is uuid). */
+function paymentIntentIdToSourceId(paymentIntentId: string): string {
+  const hex = createHash('sha256').update(paymentIntentId).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Grant pay-the-difference credits: amountReceived (pence) to GBP, expiry = last day of current UTC month. */
+async function grantPayDifferenceCredits(
+  userId: string,
+  amountReceived: number,
+  description: string,
+  sourceId?: string
+): Promise<string> {
+  const amountGBP = amountReceived / 100;
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const lastDay = new Date(Date.UTC(y, m + 1, 0));
+  const expiryDate = lastDay.toISOString().split('T')[0];
+  return CreditTransactionService.grantCredits(
+    userId,
+    amountGBP,
+    expiryDate,
+    'pay_difference',
+    sourceId,
+    description
+  );
+}
 
 /** In-memory map of processed event IDs with timestamps for TTL cleanup (PR 6 minimal). Replace with DB in production. */
 const processedEventIds = new Map<string, number>();
@@ -132,20 +162,35 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               });
               break;
             }
-            const amountGBP = amountReceived / 100;
-            const d = new Date();
-            const y = d.getUTCFullYear();
-            const m = d.getUTCMonth();
-            const lastDay = new Date(Date.UTC(y, m + 1, 0));
-            const expiryDate = lastDay.toISOString().split('T')[0];
-            await CreditTransactionService.grantCredits(
+            const sourceId = paymentIntentIdToSourceId(paymentIntent.id);
+            const alreadyGranted = await CreditTransactionService.hasCreditForSourceId(
               userId,
-              amountGBP,
-              expiryDate,
               'pay_difference',
-              undefined,
-              'Pay the difference for room booking'
+              sourceId
             );
+            if (alreadyGranted) {
+              logger.info('Pay-the-difference credits already granted (idempotent)', {
+                eventId: event.id,
+                userId,
+                roomId,
+                date,
+                paymentIntentId: paymentIntent.id,
+              });
+            } else {
+              await grantPayDifferenceCredits(
+                userId,
+                amountReceived,
+                'Pay the difference for room booking',
+                sourceId
+              );
+              logger.info('Pay-the-difference credits granted', {
+                eventId: event.id,
+                userId,
+                roomId,
+                date,
+                paymentIntentId: paymentIntent.id,
+              });
+            }
             const result = await BookingService.createBooking(
               userId,
               roomId,
@@ -167,6 +212,92 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
                 userId,
                 bookingId: result.id,
               });
+            }
+          }
+        } else if (type === 'pay_the_difference_update' && userId && paymentIntent.metadata?.bookingId) {
+          const bookingId = paymentIntent.metadata.bookingId;
+          const roomId = paymentIntent.metadata.roomId;
+          const bookingDate = paymentIntent.metadata.bookingDate;
+          const startTime = paymentIntent.metadata.startTime;
+          const endTime = paymentIntent.metadata.endTime;
+          const amountReceived = paymentIntent.amount_received;
+          if (amountReceived == null) {
+            logger.warn('Pay-the-difference-update metadata incomplete', {
+              eventId: event.id,
+              userId,
+              bookingId,
+            });
+          } else {
+            const sourceId = paymentIntentIdToSourceId(paymentIntent.id);
+            const alreadyGranted = await CreditTransactionService.hasCreditForSourceId(
+              userId,
+              'pay_difference',
+              sourceId
+            );
+            let creditsGrantedThisCall = false;
+            if (alreadyGranted) {
+              logger.info('Pay-the-difference-update credits already granted (idempotent)', {
+                eventId: event.id,
+                userId,
+                bookingId,
+                paymentIntentId: paymentIntent.id,
+              });
+            } else {
+              await grantPayDifferenceCredits(
+                userId,
+                amountReceived,
+                'Pay the difference for booking update',
+                sourceId
+              );
+              creditsGrantedThisCall = true;
+              logger.info('Pay-the-difference-update credits granted', {
+                eventId: event.id,
+                userId,
+                bookingId,
+                paymentIntentId: paymentIntent.id,
+              });
+            }
+            const updates: Parameters<typeof BookingService.updateBooking>[3] = {};
+            if (typeof roomId === 'string') updates.roomId = roomId;
+            if (typeof bookingDate === 'string') updates.bookingDate = bookingDate;
+            if (typeof startTime === 'string') updates.startTime = startTime;
+            if (typeof endTime === 'string') updates.endTime = endTime;
+            const hasUpdates =
+              updates.roomId != null ||
+              updates.bookingDate != null ||
+              updates.startTime != null ||
+              updates.endTime != null;
+            if (hasUpdates) {
+              try {
+                await BookingService.updateBooking(bookingId, userId, false, updates);
+                logger.info('Pay-the-difference-update booking update completed', {
+                  eventId: event.id,
+                  userId,
+                  bookingId,
+                });
+              } catch (updateErr) {
+                if (creditsGrantedThisCall) {
+                  try {
+                    await CreditTransactionService.revokePayDifferenceCredits(userId, sourceId);
+                    logger.warn(
+                      'Pay-the-difference-update credits revoked due to booking update failure',
+                      { eventId: event.id, userId, bookingId, paymentIntentId: paymentIntent.id }
+                    );
+                  } catch (revokeErr) {
+                    logger.error(
+                      'Failed to revoke pay-the-difference-update credits after booking update failure',
+                      revokeErr instanceof Error ? revokeErr : new Error(String(revokeErr)),
+                      { eventId: event.id, userId, bookingId, paymentIntentId: paymentIntent.id }
+                    );
+                  }
+                }
+                logger.error(
+                  'Pay-the-difference-update booking update failed',
+                  updateErr instanceof Error ? updateErr : new Error(String(updateErr)),
+                  { eventId: event.id, userId, bookingId }
+                );
+                throw updateErr;
+              }
             }
           }
         } else {

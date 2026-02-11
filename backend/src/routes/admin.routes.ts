@@ -42,6 +42,22 @@ router.get(
   adminController.getFullPractitioner.bind(adminController)
 );
 
+// Get practitioner credits and voucher summary (admin)
+router.get(
+  '/practitioners/:userId/credits',
+  authenticate,
+  requireRole('admin'),
+  adminController.getPractitionerCredits.bind(adminController)
+);
+
+// Allocate free booking hours (voucher) to practitioner
+router.post(
+  '/practitioners/:userId/vouchers',
+  authenticate,
+  requireRole('admin'),
+  adminController.allocateVoucher.bind(adminController)
+);
+
 // Update practitioner profile
 router.put(
   '/practitioners/:userId',
@@ -80,6 +96,20 @@ router.delete(
   authenticate,
   requireRole('admin'),
   adminController.deletePractitioner.bind(adminController)
+);
+
+// Reference document (one per practitioner, replace on re-upload)
+router.post(
+  '/practitioners/:userId/documents/reference/upload-url',
+  authenticate,
+  requireRole('admin'),
+  adminController.getReferenceUploadUrl.bind(adminController)
+);
+router.put(
+  '/practitioners/:userId/documents/reference/confirm',
+  authenticate,
+  requireRole('admin'),
+  adminController.confirmReferenceUpload.bind(adminController)
 );
 
 // Update document expiry date

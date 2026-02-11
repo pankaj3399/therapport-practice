@@ -25,7 +25,11 @@ export const bookingTypeEnum = pgEnum('booking_type', [
   'free',
   'internal',
 ]);
-export const documentTypeEnum = pgEnum('document_type', ['insurance', 'clinical_registration']);
+export const documentTypeEnum = pgEnum('document_type', [
+  'insurance',
+  'clinical_registration',
+  'reference',
+]);
 export const kioskActionEnum = pgEnum('kiosk_action', ['sign_in', 'sign_out']);
 export const notificationStatusEnum = pgEnum('notification_status', ['pending', 'sent', 'failed']);
 export const userStatusEnum = pgEnum('user_status', ['pending', 'active', 'suspended', 'rejected']);
@@ -36,18 +40,6 @@ export const creditSourceEnum = pgEnum('credit_source', [
   'pay_difference',
   'manual',
 ]);
-export const paymentStatusEnum = pgEnum('payment_status', [
-  'pending',
-  'succeeded',
-  'failed',
-  'canceled',
-]);
-export const paymentTypeEnum = pgEnum('payment_type', [
-  'subscription',
-  'ad_hoc_subscription',
-  'pay_difference',
-]);
-
 // Users table
 export const users = pgTable(
   'users',
@@ -132,6 +124,10 @@ export const bookings = pgTable('bookings', {
   endTime: time('end_time').notNull(),
   pricePerHour: decimal('price_per_hour', { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal('total_price', { precision: 10, scale: 2 }).notNull(),
+  creditUsed: decimal('credit_used', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  voucherHoursUsed: decimal('voucher_hours_used', { precision: 10, scale: 2 })
+    .notNull()
+    .default('0.00'),
   status: bookingStatusEnum('status').notNull().default('confirmed'),
   bookingType: bookingTypeEnum('booking_type').notNull(),
   cancelledAt: timestamp('cancelled_at'),
@@ -187,35 +183,18 @@ export const creditTransactions = pgTable(
     sourceType: creditSourceEnum('source_type').notNull(),
     sourceId: uuid('source_id'),
     description: text('description'),
+    revoked: boolean('revoked').notNull().default(false),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (table) => ({
     userIdIdx: index('credit_transactions_user_id_idx').on(table.userId),
     expiryDateIdx: index('credit_transactions_expiry_date_idx').on(table.expiryDate),
-  })
-);
-
-// Stripe payments table (tracks payment intents and webhook events)
-export const stripePayments = pgTable(
-  'stripe_payments',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).notNull().unique(),
-    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
-    amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
-    currency: varchar('currency', { length: 3 }).notNull().default('gbp'),
-    status: paymentStatusEnum('status').notNull().default('pending'),
-    paymentType: paymentTypeEnum('payment_type').notNull(),
-    metadata: jsonb('metadata'),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
-  },
-  (table) => ({
-    userIdIdx: index('stripe_payments_user_id_idx').on(table.userId),
+    userSourceTypeIdIdx: index('credit_transactions_user_source_type_id_idx').on(
+      table.userId,
+      table.sourceType,
+      table.sourceId
+    ),
   })
 );
 
@@ -325,7 +304,6 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [clinicalExecutors.userId],
   }),
   creditTransactions: many(creditTransactions),
-  stripePayments: many(stripePayments),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -352,11 +330,6 @@ export const clinicalExecutorsRelations = relations(clinicalExecutors, ({ one })
 export const creditTransactionsRelations = relations(creditTransactions, ({ one }) => ({
   user: one(users, {
     fields: [creditTransactions.userId],
-    references: [users.id],
-  }),
-}));export const stripePaymentsRelations = relations(stripePayments, ({ one }) => ({
-  user: one(users, {
-    fields: [stripePayments.userId],
     references: [users.id],
   }),
 }));

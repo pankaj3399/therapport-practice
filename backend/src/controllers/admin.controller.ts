@@ -13,14 +13,20 @@ import {
   invoices,
   emailNotifications,
   passwordResets,
-  emailChangeRequests
+  emailChangeRequests,
+  rooms,
 } from '../db/schema';
-import { eq, and, or, ilike, aliasedTable, isNull, sql, SQL, count } from 'drizzle-orm';
+import { eq, and, or, not, ilike, aliasedTable, isNull, sql, SQL, count, gte, lte, lt, desc } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
 import { z, ZodError } from 'zod';
 import { FileService } from '../services/file.service';
 import { ReminderService } from '../services/reminder.service';
+import { HeadObjectCommand } from '@aws-sdk/client-s3';
+import { r2Client, R2_BUCKET_NAME } from '../config/r2';
 import { calculateExpiryStatus } from '../utils/date.util';
+import { CreditService } from '../services/credit.service';
+import { VoucherService } from '../services/voucher.service';
+import { getRevenueForMonthGbp } from '../services/stripe-payment.service';
 
 const updateMembershipSchema = z.object({
   type: z.enum(['permanent', 'ad_hoc']).nullable().optional(),
@@ -50,6 +56,21 @@ const updateClinicalExecutorSchema = z.object({
 const updateDocumentExpirySchema = z.object({
   expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expiry date must be in YYYY-MM-DD format').nullable().optional(),
 });
+
+const referenceUploadUrlSchema = z.object({
+  filename: z.string().min(1),
+  fileType: z.string().min(1),
+  fileSize: z.number().positive(),
+});
+
+const referenceConfirmSchema = z.object({
+  filePath: z.string().min(1),
+  fileName: z.string().min(1),
+  oldDocumentId: z.string().uuid().optional(),
+});
+
+/** Operating hours 08:00–22:00 = 14h per room per day for occupancy capacity. */
+const DAILY_OPERATING_HOURS = 14;
 
 export class AdminController {
   async getPractitioners(req: AuthRequest, res: Response) {
@@ -158,7 +179,29 @@ export class AdminController {
         return res.status(401).json({ success: false, error: 'Authentication required' });
       }
 
-      // Efficiently count practitioners using COUNT query
+      const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+      const now = new Date();
+      const firstDayOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const lastDayOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+      const defaultFrom = firstDayOfMonth.toISOString().split('T')[0];
+      const defaultTo = lastDayOfMonth.toISOString().split('T')[0];
+
+      const fromDate = (req.query.fromDate as string)?.trim() || defaultFrom;
+      const toDate = (req.query.toDate as string)?.trim() || defaultTo;
+      if (!DATE_REGEX.test(fromDate) || !DATE_REGEX.test(toDate)) {
+        return res.status(400).json({
+          success: false,
+          error: 'fromDate and toDate must be YYYY-MM-DD',
+        });
+      }
+      if (fromDate > toDate) {
+        return res.status(400).json({
+          success: false,
+          error: 'fromDate must be before or equal to toDate',
+        });
+      }
+
+      // Practitioner and membership counts
       const [result] = await db
         .select({ count: count() })
         .from(users)
@@ -166,7 +209,6 @@ export class AdminController {
 
       const practitionerCount = result?.count || 0;
 
-      // Count memberships by type in a single query
       const [membershipCounts] = await db
         .select({
           adHocCount: sql<number>`count(*) filter (where ${memberships.type} = 'ad_hoc')`,
@@ -174,12 +216,82 @@ export class AdminController {
         })
         .from(memberships);
 
+      // Occupancy: booked slot-hours vs total slot capacity in date range (08:00–22:00 = 14h per room per day)
+      const [roomCountRow] = await db
+        .select({ count: count() })
+        .from(rooms)
+        .where(eq(rooms.active, true));
+      const roomCount = roomCountRow?.count || 0;
+
+      const fromDateObj = new Date(fromDate + 'T12:00:00Z');
+      const toDateObj = new Date(toDate + 'T12:00:00Z');
+      const daysInRange =
+        Math.max(0, Math.ceil((toDateObj.getTime() - fromDateObj.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+      const totalSlotHours = daysInRange * roomCount * DAILY_OPERATING_HOURS;
+
+      const confirmedBookingsInRange = await db
+        .select({
+          startTime: bookings.startTime,
+          endTime: bookings.endTime,
+        })
+        .from(bookings)
+        .where(
+          and(
+            or(eq(bookings.status, 'confirmed'), eq(bookings.status, 'completed')),
+            gte(bookings.bookingDate, fromDate),
+            lte(bookings.bookingDate, toDate)
+          )
+        );
+
+      let bookedHours = 0;
+      for (const b of confirmedBookingsInRange) {
+        const startTime = String(b.startTime);
+        const endTime = String(b.endTime);
+        const [sh, sm] = startTime.split(':').map(Number);
+        const [eh, em] = endTime.split(':').map(Number);
+        const startMins = sh * 60 + (sm || 0);
+        const endMins = eh * 60 + (em || 0);
+        const durationMins = (endMins - startMins + 24 * 60) % (24 * 60);
+        bookedHours += durationMins / 60;
+      }
+      const occupancyPercent =
+        totalSlotHours > 0 ? Math.min(100, Math.round((bookedHours / totalSlotHours) * 100 * 100) / 100) : 0;
+
+      // Revenue: current month only — Stripe (from API) + booking total_price (confirmed/completed)
+      const stripeRevenue = await getRevenueForMonthGbp({
+        year: now.getUTCFullYear(),
+        month: now.getUTCMonth() + 1,
+      });
+
+      const [bookingRevenueRow] = await db
+        .select({
+          total: sql<string>`coalesce(sum(${bookings.totalPrice}), 0)`,
+        })
+        .from(bookings)
+        .where(
+          and(
+            or(eq(bookings.status, 'confirmed'), eq(bookings.status, 'completed')),
+            gte(bookings.bookingDate, defaultFrom),
+            lte(bookings.bookingDate, defaultTo)
+          )
+        );
+      const bookingRevenue = parseFloat(bookingRevenueRow?.total ?? '0') || 0;
+      const revenueCurrentMonthGbp = stripeRevenue + bookingRevenue;
+
       res.status(200).json({
         success: true,
         data: {
           practitionerCount,
           adHocCount: membershipCounts?.adHocCount || 0,
           permanentCount: membershipCounts?.permanentCount || 0,
+          occupancy: {
+            fromDate,
+            toDate,
+            totalSlotHours,
+            bookedHours: Math.round(bookedHours * 100) / 100,
+            occupancyPercent,
+          },
+          revenueCurrentMonthGbp: Math.round(revenueCurrentMonthGbp * 100) / 100,
         },
       });
     } catch (error: unknown) {
@@ -357,6 +469,86 @@ export class AdminController {
         targetUserId: req.params.userId,
         method: req.method,
         url: req.originalUrl,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** GET /admin/practitioners/:userId/credits – admin view of practitioner credit + voucher summary */
+  async getPractitionerCredits(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      const [creditSummary, voucherSummary] = await Promise.all([
+        CreditService.getCreditBalance(userId),
+        VoucherService.getRemainingFreeHours(userId),
+      ]);
+      res.status(200).json({
+        success: true,
+        data: { credit: creditSummary, voucher: voucherSummary },
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to get practitioner credits', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
+      });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** POST /admin/practitioners/:userId/vouchers – allocate free booking hours */
+  async allocateVoucher(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const schema = z.object({
+        hoursAllocated: z.number().positive('Hours must be positive'),
+        expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expiry date must be YYYY-MM-DD'),
+        reason: z.string().optional(),
+      });
+      const body = await schema.parseAsync(req.body);
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      const [row] = await db
+        .insert(freeBookingVouchers)
+        .values({
+          userId,
+          hoursAllocated: String(body.hoursAllocated),
+          hoursUsed: '0.00',
+          expiryDate: body.expiryDate,
+          reason: body.reason ?? null,
+        })
+        .returning();
+      res.status(201).json({
+        success: true,
+        data: {
+          id: row.id,
+          hoursAllocated: body.hoursAllocated,
+          expiryDate: body.expiryDate,
+          reason: row.reason ?? undefined,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ success: false, error: error.errors.map((e) => e.message).join(', ') });
+      }
+      logger.error('Failed to allocate voucher', error, {
+        userId: req.user?.id,
+        targetUserId: req.params.userId,
       });
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
@@ -798,9 +990,10 @@ export class AdminController {
       // Use UTC YYYY-MM-DD for comparison to match "start of day" logic consistently
       const dateNow = new Date().toISOString().split('T')[0];
 
-      // Aliases for joining documents twice
+      // Aliases for joining documents
       const insuranceDocs = aliasedTable(documents, 'insurance_docs');
       const registrationDocs = aliasedTable(documents, 'registration_docs');
+      const referenceDocs = aliasedTable(documents, 'reference_docs');
 
       // Common Where Clause Conditions
       const missingInsurance = or(
@@ -818,6 +1011,8 @@ export class AdminController {
         )
       );
 
+      const missingReference = isNull(referenceDocs.id);
+
       // Removed redundant isNull checks on non-nullable columns (name, email, phone)
       const missingExecutor = and(
         marketingAddonRequired,
@@ -827,7 +1022,7 @@ export class AdminController {
       // We want users who have ANY of these missing items
       const whereClause = and(
         eq(users.role, 'practitioner'),
-        or(missingInsurance, missingRegistration, missingExecutor)
+        or(missingInsurance, missingRegistration, missingReference, missingExecutor)
       );
 
       // 1. Get Total Count
@@ -837,6 +1032,7 @@ export class AdminController {
         .leftJoin(memberships, eq(memberships.userId, users.id))
         .leftJoin(insuranceDocs, and(eq(insuranceDocs.userId, users.id), eq(insuranceDocs.documentType, 'insurance')))
         .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
+        .leftJoin(referenceDocs, and(eq(referenceDocs.userId, users.id), eq(referenceDocs.documentType, 'reference')))
         .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
         .where(whereClause);
 
@@ -850,12 +1046,14 @@ export class AdminController {
           membership: memberships,
           insurance: insuranceDocs,
           registration: registrationDocs,
+          reference: referenceDocs,
           executor: clinicalExecutors,
         })
         .from(users)
         .leftJoin(memberships, eq(memberships.userId, users.id))
         .leftJoin(insuranceDocs, and(eq(insuranceDocs.userId, users.id), eq(insuranceDocs.documentType, 'insurance')))
         .leftJoin(registrationDocs, and(eq(registrationDocs.userId, users.id), eq(registrationDocs.documentType, 'clinical_registration')))
+        .leftJoin(referenceDocs, and(eq(referenceDocs.userId, users.id), eq(referenceDocs.documentType, 'reference')))
         .leftJoin(clinicalExecutors, eq(clinicalExecutors.userId, users.id))
         .where(whereClause)
         .orderBy(users.lastName, users.firstName) // Deterministic ordering
@@ -879,6 +1077,11 @@ export class AdminController {
           missing.push('Insurance (Missing)');
         } else if (isExpired(row.insurance.expiryDate)) {
           missing.push('Insurance (Expired)');
+        }
+
+        // Reference (one per practitioner)
+        if (!row.reference) {
+          missing.push('References (Missing)');
         }
 
         // Marketing Addon Checks
@@ -930,6 +1133,139 @@ export class AdminController {
     }
   }
 
+  /** POST /admin/practitioners/:userId/documents/reference/upload-url */
+  async getReferenceUploadUrl(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      if (!R2_BUCKET_NAME) {
+        res.status(500).json({ success: false, error: 'File storage service is not configured' });
+        return;
+      }
+      const data = referenceUploadUrlSchema.parse(req.body);
+      const validation = FileService.validateDocumentFile({
+        filename: data.filename,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+      });
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error });
+      }
+      const currentDocument = await db.query.documents.findFirst({
+        where: and(eq(documents.userId, userId), eq(documents.documentType, 'reference')),
+        orderBy: (documents, { desc }) => [desc(documents.createdAt)],
+      });
+      const filePath = FileService.generateFilePath(userId, 'documents', data.filename);
+      const { presignedUrl, filePath: generatedPath } = await FileService.generatePresignedUploadUrl(
+        filePath,
+        data.fileType
+      );
+      res.status(200).json({
+        success: true,
+        data: {
+          presignedUrl,
+          filePath: generatedPath,
+          oldDocumentId: currentDocument?.id,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to get reference upload URL', error, { userId: req.user?.id, targetUserId: req.params.userId });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  /** PUT /admin/practitioners/:userId/documents/reference/confirm */
+  async confirmReferenceUpload(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const { userId } = req.params;
+      const practitioner = await db.query.users.findFirst({
+        where: and(eq(users.id, userId), eq(users.role, 'practitioner'), isNull(users.deletedAt)),
+      });
+      if (!practitioner) {
+        return res.status(404).json({ success: false, error: 'Practitioner not found' });
+      }
+      const data = referenceConfirmSchema.parse(req.body);
+      try {
+        const headCommand = new HeadObjectCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: data.filePath,
+        });
+        await r2Client.send(headCommand);
+      } catch (err: unknown) {
+        const errObj = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+        if (errObj.name === 'NotFound' || errObj.$metadata?.httpStatusCode === 404) {
+          return res.status(400).json({ success: false, error: 'Uploaded file not found. Please try uploading again.' });
+        }
+        logger.error('R2 error verifying reference file', err, { filePath: data.filePath });
+        return res.status(500).json({ success: false, error: 'Failed to verify uploaded file' });
+      }
+      const { newDocument, oldDocument } = await db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(documents)
+          .values({
+            userId,
+            documentType: 'reference',
+            fileUrl: data.filePath,
+            fileName: data.fileName,
+            expiryDate: null,
+          })
+          .returning();
+        const [latest] = await tx
+          .select()
+          .from(documents)
+          .where(
+            and(
+              eq(documents.userId, userId),
+              eq(documents.documentType, 'reference'),
+              not(eq(documents.id, inserted.id))
+            )
+          )
+          .orderBy(desc(documents.createdAt))
+          .limit(1);
+        if (latest) {
+          await tx.delete(documents).where(eq(documents.id, latest.id));
+        }
+        return { newDocument: inserted, oldDocument: latest ?? null };
+      });
+      if (oldDocument) {
+        try {
+          await FileService.deleteFile(FileService.extractFilePath(oldDocument.fileUrl));
+        } catch (err) {
+          logger.error('Failed to delete old reference file from R2', err, { oldDocumentId: oldDocument.id });
+        }
+      }
+      const documentUrl = await FileService.generatePresignedGetUrl(newDocument.fileUrl, 'documents');
+      res.status(200).json({
+        success: true,
+        data: {
+          id: newDocument.id,
+          fileName: newDocument.fileName,
+          documentUrl,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ success: false, error: 'Validation failed', details: error.flatten() });
+      }
+      logger.error('Failed to confirm reference upload', error, { userId: req.user?.id, targetUserId: req.params.userId });
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
   // Update document expiry date
   async updateDocumentExpiry(req: AuthRequest, res: Response) {
     try {
@@ -973,19 +1309,18 @@ export class AdminController {
         .where(eq(documents.id, documentId))
         .returning();
 
-      // If expiry date changed and new date is provided, reschedule reminders
+      // If expiry date changed and new date is provided, reschedule reminders (insurance and clinical_registration only)
       if (oldExpiryDate !== newExpiryDate && newExpiryDate) {
-        // Cancel old reminders
         await ReminderService.cancelDocumentReminders(documentId);
-
-        // Schedule new reminders with updated expiry date
-        await ReminderService.scheduleDocumentReminders(
-          userId,
-          documentId,
-          document.documentType,
-          document.fileName,
-          newExpiryDate
-        );
+        if (document.documentType === 'insurance' || document.documentType === 'clinical_registration') {
+          await ReminderService.scheduleDocumentReminders(
+            userId,
+            documentId,
+            document.documentType,
+            document.fileName,
+            newExpiryDate
+          );
+        }
       } else if (oldExpiryDate && !newExpiryDate) {
         // If expiry date was removed, cancel existing reminders
         await ReminderService.cancelDocumentReminders(documentId);

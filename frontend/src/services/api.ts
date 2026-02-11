@@ -194,6 +194,31 @@ export interface CreditSummary {
   membershipType: 'permanent' | 'ad_hoc' | null;
 }
 
+export interface VoucherSummary {
+  totalHoursAllocated: number;
+  totalHoursUsed: number;
+  remainingHours: number;
+  earliestExpiry: string | null;
+  vouchers: Array<{
+    id: string;
+    hoursAllocated: number;
+    hoursUsed: number;
+    remainingHours: number;
+    expiryDate: string;
+    reason: string | null;
+  }>;
+}
+
+export interface InvoiceItem {
+  id: string;
+  number: string | null;
+  status: string;
+  amount_paid: number;
+  currency: string;
+  created: number;
+  invoice_pdf: string | null;
+}
+
 /** Discriminated union for createBooking response; narrow via success and paymentRequired. */
 export type CreateBookingResponse =
   | { success: true; booking: { id: string }; paymentRequired?: false }
@@ -260,6 +285,7 @@ export const practitionerApi = {
       success: boolean;
       rooms: Array<{ id: string; name: string }>;
       bookings: Array<{
+        id?: string;
         roomId: string;
         startTime: string;
         endTime: string;
@@ -295,8 +321,25 @@ export const practitionerApi = {
     startTime: string;
     endTime: string;
     bookingType: 'permanent_recurring' | 'ad_hoc' | 'free' | 'internal';
+    targetUserId?: string;
   }) => {
     return api.post<CreateBookingResponse>('/practitioner/bookings', data);
+  },
+
+  updateBooking: (
+    id: string,
+    data: { roomId?: string; bookingDate?: string; startTime?: string; endTime?: string }
+  ) => {
+    return api.patch<
+      | ApiResponse<{ message?: string }>
+      | {
+          success: false;
+          paymentRequired: true;
+          clientSecret: string;
+          paymentIntentId: string;
+          amountPence: number;
+        }
+    >(`/practitioner/bookings/${id}`, data);
   },
 
   cancelBooking: (id: string) => {
@@ -354,18 +397,33 @@ export const practitionerApi = {
       suspensionDate?: string;
     }>('/practitioner/subscriptions/terminate', terminationDate ? { terminationDate } : {});
   },
+
+  getInvoices: (signal?: AbortSignal) => {
+    return api.get<{
+      success: boolean;
+      invoices: InvoiceItem[];
+    }>('/practitioner/invoices', { signal });
+  },
 };
 
 // Admin API methods
 export const adminApi = {
-  getAdminStats: () => {
+  getAdminStats: (params?: { fromDate?: string; toDate?: string }) => {
     return api.get<
       ApiResponse<{
         practitionerCount: number;
         adHocCount: number;
         permanentCount: number;
+        occupancy: {
+          fromDate: string;
+          toDate: string;
+          totalSlotHours: number;
+          bookedHours: number;
+          occupancyPercent: number;
+        };
+        revenueCurrentMonthGbp: number;
       }>
-    >('/admin/stats');
+    >('/admin/stats', { params });
   },
 
   getPractitioners: (search?: string, page = 1, limit = 10) => {
@@ -559,6 +617,66 @@ export const adminApi = {
     );
   },
 
+  // Get practitioner credits and voucher summary (admin)
+  getPractitionerCredits: (userId: string) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.get<
+      ApiResponse<{
+        credit: {
+          currentMonth: {
+            monthYear: string;
+            totalGranted: number;
+            totalUsed: number;
+            remainingCredit: number;
+          } | null;
+          nextMonth: { monthYear: string; nextMonthAllocation: number } | null;
+          byMonth?: Array<{ month: string; remainingCredit: number }>;
+          membershipType: 'permanent' | 'ad_hoc' | null;
+        };
+        voucher: {
+          totalHoursAllocated: number;
+          totalHoursUsed: number;
+          remainingHours: number;
+          earliestExpiry: string | null;
+          vouchers: Array<{
+            id: string;
+            hoursAllocated: number;
+            hoursUsed: number;
+            remainingHours: number;
+            expiryDate: string;
+            reason: string | null;
+          }>;
+        };
+      }>
+    >(`/admin/practitioners/${userId}/credits`);
+  },
+
+  // Allocate free booking hours (voucher) to practitioner
+  allocateVoucher: (
+    userId: string,
+    data: { hoursAllocated: number; expiryDate: string; reason?: string }
+  ) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return api.post<
+      ApiResponse<{
+        id: string;
+        hoursAllocated: number;
+        expiryDate: string;
+        reason?: string;
+      }>
+    >(`/admin/practitioners/${userId}/vouchers`, data);
+  },
+
   // Delete practitioner
   deletePractitioner: (userId: string) => {
     try {
@@ -596,6 +714,35 @@ export const adminApi = {
     >(`/admin/practitioners/${userId}/documents/${documentId}/expiry`, {
       expiryDate,
     });
+  },
+
+  getReferenceUploadUrl: (
+    userId: string,
+    data: { filename: string; fileType: string; fileSize: number }
+  ) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return api.post<
+      ApiResponse<{ presignedUrl: string; filePath: string; oldDocumentId?: string }>
+    >(`/admin/practitioners/${userId}/documents/reference/upload-url`, data);
+  },
+
+  confirmReferenceUpload: (
+    userId: string,
+    data: { filePath: string; fileName: string; oldDocumentId?: string }
+  ) => {
+    try {
+      validateUserId(userId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return api.put<ApiResponse<{ id: string; fileName: string; documentUrl: string }>>(
+      `/admin/practitioners/${userId}/documents/reference/confirm`,
+      data
+    );
   },
 };
 

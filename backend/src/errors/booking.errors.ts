@@ -35,3 +35,20 @@ export class BookingNotFoundError extends BookingServiceError {
     Object.setPrototypeOf(this, BookingNotFoundError.prototype);
   }
 }
+
+export type PaymentRequiredPayload = {
+  clientSecret: string;
+  paymentIntentId: string;
+  amountPence: number;
+};
+
+export class PaymentRequiredError extends BookingServiceError {
+  constructor(
+    message: string,
+    public readonly payload: PaymentRequiredPayload
+  ) {
+    super(message, 402);
+    this.name = 'PaymentRequiredError';
+    Object.setPrototypeOf(this, PaymentRequiredError.prototype);
+  }
+}

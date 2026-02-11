@@ -16,7 +16,24 @@ import { Icon } from '@/components/ui/Icon';
 import { adminApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import axios from 'axios';
+
+function getDefaultDateRange(): { fromDate: string; toDate: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const from = new Date(y, m, 1);
+  const to = new Date(y, m + 1, 0);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const formatLocal = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return {
+    fromDate: formatLocal(from),
+    toDate: formatLocal(to),
+  };
+}
 
 export const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -24,10 +41,22 @@ export const AdminDashboard: React.FC = () => {
   const [practitionerCount, setPractitionerCount] = useState<number | null>(null);
   const [adHocCount, setAdHocCount] = useState<number | null>(null);
   const [permanentCount, setPermanentCount] = useState<number | null>(null);
+  const [occupancy, setOccupancy] = useState<{
+    fromDate: string;
+    toDate: string;
+    totalSlotHours: number;
+    bookedHours: number;
+    occupancyPercent: number;
+  } | null>(null);
+  const [revenueCurrentMonthGbp, setRevenueCurrentMonthGbp] = useState<number | null>(null);
+  const [occupancyFromDate, setOccupancyFromDate] = useState(() => getDefaultDateRange().fromDate);
+  const [occupancyToDate, setOccupancyToDate] = useState(() => getDefaultDateRange().toDate);
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  const [missingInfo, setMissingInfo] = useState<Array<{ id: string; name: string; missing: string[] }>>([]);
+  const [missingInfo, setMissingInfo] = useState<
+    Array<{ id: string; name: string; missing: string[] }>
+  >([]);
   const [missingInfoLoading, setMissingInfoLoading] = useState(true);
   const [missingInfoError, setMissingInfoError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -37,11 +66,17 @@ export const AdminDashboard: React.FC = () => {
     setLoading(true);
     setStatsError(null);
     try {
-      const response = await adminApi.getAdminStats();
+      const response = await adminApi.getAdminStats({
+        fromDate: occupancyFromDate,
+        toDate: occupancyToDate,
+      });
       if (response.data.success && response.data.data) {
-        setPractitionerCount(response.data.data.practitionerCount);
-        setAdHocCount(response.data.data.adHocCount);
-        setPermanentCount(response.data.data.permanentCount);
+        const { data } = response.data;
+        setPractitionerCount(data.practitionerCount);
+        setAdHocCount(data.adHocCount);
+        setPermanentCount(data.permanentCount);
+        setOccupancy(data.occupancy ?? null);
+        setRevenueCurrentMonthGbp(data.revenueCurrentMonthGbp ?? null);
       }
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -59,7 +94,7 @@ export const AdminDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [occupancyFromDate, occupancyToDate]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -90,13 +125,13 @@ export const AdminDashboard: React.FC = () => {
       console.error('Failed to fetch missing info:', error);
       setMissingInfoError('Failed to load missing information list.');
     } finally {
-      if (abortControllerRef.current === controller) { // Only stop loading if this is the latest request
+      if (abortControllerRef.current === controller) {
+        // Only stop loading if this is the latest request
         setMissingInfoLoading(false);
       }
     }
   }, [page]);
 
-  // Separate effect for stats to avoid unnecessary re-fetches when page changes
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchStats();
@@ -148,7 +183,6 @@ export const AdminDashboard: React.FC = () => {
             </CardContent>
           </Card>
 
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Ad-Hoc</CardTitle>
@@ -173,6 +207,82 @@ export const AdminDashboard: React.FC = () => {
                 <div className="text-2xl font-bold text-slate-400">—</div>
               ) : (
                 <div className="text-2xl font-bold">{loading ? '...' : permanentCount ?? 0}</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Revenue (this month)</CardTitle>
+              <Icon name="payments" className="h-4 w-4 text-slate-500" />
+            </CardHeader>
+            <CardContent>
+              {statsError ? (
+                <div className="text-2xl font-bold text-slate-400">—</div>
+              ) : (
+                <div className="text-2xl font-bold">
+                  {loading
+                    ? '...'
+                    : revenueCurrentMonthGbp != null
+                    ? `£${revenueCurrentMonthGbp.toFixed(2)}`
+                    : '—'}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Booked vs total slot hours (08:00–22:00) in selected range
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="occupancy-from">From</Label>
+                  <Input
+                    id="occupancy-from"
+                    type="date"
+                    max={occupancyToDate}
+                    value={occupancyFromDate}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setOccupancyFromDate(v > occupancyToDate ? occupancyToDate : v);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="occupancy-to">To</Label>
+                  <Input
+                    id="occupancy-to"
+                    type="date"
+                    min={occupancyFromDate}
+                    value={occupancyToDate}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setOccupancyToDate(v < occupancyFromDate ? occupancyFromDate : v);
+                    }}
+                  />
+                </div>
+              </div>
+              {statsError ? (
+                <div className="text-slate-400">—</div>
+              ) : loading ? (
+                <div className="text-2xl font-bold">...</div>
+              ) : occupancy ? (
+                <div>
+                  <div className="text-2xl font-bold">{occupancy.occupancyPercent.toFixed(1)}%</div>
+                  <div className="text-xs text-slate-500">
+                    {occupancy.bookedHours.toFixed(1)}h booked / {occupancy.totalSlotHours}h
+                    capacity
+                  </div>
+                </div>
+              ) : (
+                <div className="text-slate-400">—</div>
               )}
             </CardContent>
           </Card>
@@ -215,8 +325,12 @@ export const AdminDashboard: React.FC = () => {
                 {missingInfoLoading ? (
                   Array.from({ length: 3 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
+                      <TableCell>
+                        <Skeleton className="h-4 w-[150px]" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-4 w-[200px]" />
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : missingInfoError ? (
@@ -237,12 +351,13 @@ export const AdminDashboard: React.FC = () => {
                           {practitioner.missing.map((item, index) => (
                             <span
                               key={index}
-                              className={`text-sm ${item.includes('Missing') || item.includes('Incomplete')
-                                ? 'text-red-500 font-medium'
-                                : item.includes('Expired')
+                              className={`text-sm ${
+                                item.includes('Missing') || item.includes('Incomplete')
+                                  ? 'text-red-500 font-medium'
+                                  : item.includes('Expired')
                                   ? 'text-orange-500 font-medium'
                                   : 'text-red-500 font-medium' // Default to missing style
-                                }`}
+                              }`}
                             >
                               • {item}
                             </span>
@@ -266,7 +381,7 @@ export const AdminDashboard: React.FC = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1 || missingInfoLoading}
                 >
                   Previous
@@ -277,7 +392,7 @@ export const AdminDashboard: React.FC = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages || missingInfoLoading}
                 >
                   Next
