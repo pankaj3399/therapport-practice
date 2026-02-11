@@ -19,6 +19,7 @@ export interface CreditTransactionRow {
   expiryDate: string;
   sourceType: CreditSourceType;
   description: string | null;
+  revoked: boolean;
 }
 
 export interface UseCreditsResult {
@@ -82,8 +83,14 @@ export async function revokePayDifferenceCredits(
         throw new Error('Cannot revoke pay-difference credits that have been used or partially spent');
       }
 
-      await tx.delete(creditTransactions).where(eq(creditTransactions.id, row.id));
-      logger.info('Revoked pay-difference credits transaction', {
+      await tx
+        .update(creditTransactions)
+        .set({
+          revoked: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(creditTransactions.id, row.id));
+      logger.info('Marked pay-difference credits transaction as revoked', {
         transactionId: row.id,
         userId,
         sourceId,
@@ -207,6 +214,7 @@ export async function getAvailableCredits(
     .where(
       and(
         eq(creditTransactions.userId, userId),
+        eq(creditTransactions.revoked, false),
         gte(creditTransactions.expiryDate, dateStr),
         sql`${creditTransactions.remainingAmount} > 0`
       )
@@ -221,6 +229,7 @@ export async function getAvailableCredits(
     expiryDate: r.expiryDate,
     sourceType: r.sourceType as CreditSourceType,
     description: r.description,
+    revoked: !!r.revoked,
   }));
 }
 
@@ -244,6 +253,7 @@ export async function useCreditsWithinTransaction(
     .where(
       and(
         eq(creditTransactions.userId, userId),
+        eq(creditTransactions.revoked, false),
         gte(creditTransactions.expiryDate, todayUtcString()),
         sql`${creditTransactions.remainingAmount} > 0`
       )
@@ -379,7 +389,7 @@ export async function getCreditBalanceTotals(
       totalUsed: sql<number | string>`COALESCE(SUM(${creditTransactions.usedAmount}), 0)`,
       totalAvailable: sql<
         number | string
-      >`COALESCE(SUM(CASE WHEN ${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 THEN ${creditTransactions.remainingAmount} ELSE 0 END), 0)`,
+      >`COALESCE(SUM(CASE WHEN ${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 AND ${creditTransactions.revoked} = false THEN ${creditTransactions.remainingAmount} ELSE 0 END), 0)`,
     })
     .from(creditTransactions)
     .where(eq(creditTransactions.userId, userId));

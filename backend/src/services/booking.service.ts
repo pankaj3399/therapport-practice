@@ -845,6 +845,23 @@ export type UpdateBookingPaymentRequired = {
   amountPence: number;
 };
 
+class BookingUpdatePaymentComputationError extends Error {
+  constructor(
+    public readonly payload: {
+      userId: string;
+      bookingId: string;
+      newRoomId: string;
+      newDate: string;
+      newStartTime: string;
+      newEndTime: string;
+      amountToPayPence: number;
+      stripeCustomerId?: string | null;
+    }
+  ) {
+    super('Payment required for booking update (computed inside transaction)');
+  }
+}
+
 /**
  * Update booking date/time/room. Caller must be owner or admin. 24h before start required.
  * Recalculates price from new room/date/times. Runs in a single DB transaction: re-fetches and
@@ -860,7 +877,10 @@ export async function updateBooking(
   updates: UpdateBookingParams
 ): Promise<void | UpdateBookingPaymentRequired> {
   try {
-    return await db.transaction(async (tx) => {
+    // First, run a transaction that performs all validation and computes any required
+    // payment amount while holding the necessary row locks. The transaction is rolled
+    // back when payment is required so no changes are persisted before Stripe is called.
+    const result = await db.transaction(async (tx) => {
     const [row] = await tx
       .select({
         booking: bookings,
@@ -1043,12 +1063,9 @@ export async function updateBooking(
 
       if (hasShortfall) {
         const shortfall = voucherHoursDelta - remainingForDeduct;
-        const shortfallCredit =
-          (totalPriceCents * shortfall) / durationHours / 100;
-        const totalCreditToUse =
-          (creditDelta > 0 ? creditDelta : 0) + shortfallCredit;
-        const { totalAvailable } =
-          await CreditTransactionService.getCreditBalanceTotals(userId);
+        const shortfallCredit = (totalPriceCents * shortfall) / durationHours / 100;
+        const totalCreditToUse = (creditDelta > 0 ? creditDelta : 0) + shortfallCredit;
+        const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId);
         if (totalAvailable < totalCreditToUse) {
           const amountToPayGBP = totalCreditToUse - totalAvailable;
           const amountToPayPence = Math.round(amountToPayGBP * 100);
@@ -1069,27 +1086,17 @@ export async function updateBooking(
               .where(eq(memberships.userId, userId))
               .limit(1);
             if (!membership) throw new BookingValidationError('No membership');
-            const { paymentIntentId, clientSecret } =
-              await StripePaymentService.createPaymentIntent({
-                amount: amountToPayPence,
-                currency: 'gbp',
-                customerId: membership.stripeCustomerId ?? undefined,
-                metadata: {
-                  type: 'pay_the_difference_update',
-                  userId,
-                  bookingId,
-                  roomId: newRoomId,
-                  bookingDate: newDate,
-                  startTime: newStartTime,
-                  endTime: newEndTime,
-                  expectedAmountPence: String(amountToPayPence),
-                },
-                description: 'Pay the difference for booking update',
-              });
-            throw new PaymentRequiredError('Payment required for booking update', {
-              clientSecret,
-              paymentIntentId,
-              amountPence: amountToPayPence,
+            // Compute everything needed for payment while holding the DB locks,
+            // then signal to the outer scope to perform the Stripe call.
+            throw new BookingUpdatePaymentComputationError({
+              userId,
+              bookingId,
+              newRoomId,
+              newDate,
+              newStartTime,
+              newEndTime,
+              amountToPayPence,
+              stripeCustomerId: membership.stripeCustomerId,
             });
           }
         }
@@ -1160,8 +1167,58 @@ export async function updateBooking(
         updatedAt: new Date(),
       })
       .where(eq(bookings.id, bookingId));
+
+      return;
     });
+    return result;
   } catch (err) {
+    if (err instanceof BookingUpdatePaymentComputationError) {
+      const {
+        userId,
+        bookingId: bookingIdForMetadata,
+        newRoomId,
+        newDate,
+        newStartTime,
+        newEndTime,
+        amountToPayPence,
+        stripeCustomerId,
+      } = err.payload;
+
+      const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
+        amount: amountToPayPence,
+        currency: 'gbp',
+        customerId: stripeCustomerId ?? undefined,
+        metadata: {
+          type: 'pay_the_difference_update',
+          userId,
+          bookingId: bookingIdForMetadata,
+          roomId: newRoomId,
+          bookingDate: newDate,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          expectedAmountPence: String(amountToPayPence),
+        },
+        description: 'Pay the difference for booking update',
+      });
+
+      // Now that the transaction has been rolled back and the DB locks released,
+      // throw the existing PaymentRequiredError so the API returns the same payload.
+      const paymentError = new PaymentRequiredError('Payment required for booking update', {
+        clientSecret,
+        paymentIntentId,
+        amountPence: amountToPayPence,
+      });
+
+      if (paymentError instanceof PaymentRequiredError) {
+        return {
+          paymentRequired: true,
+          clientSecret: paymentError.payload.clientSecret,
+          paymentIntentId: paymentError.payload.paymentIntentId,
+          amountPence: paymentError.payload.amountPence,
+        };
+      }
+    }
+
     if (err instanceof PaymentRequiredError) {
       return {
         paymentRequired: true,

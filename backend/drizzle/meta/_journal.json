@@ -78,6 +78,13 @@
       "when": 1770600000000,
       "tag": "0010_booking_credit_voucher_used",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1770825290592,
+      "tag": "0011_careful_jigsaw",
+      "breakpoints": true
     }
   ]
 }

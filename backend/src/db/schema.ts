@@ -25,7 +25,11 @@ export const bookingTypeEnum = pgEnum('booking_type', [
   'free',
   'internal',
 ]);
-export const documentTypeEnum = pgEnum('document_type', ['insurance', 'clinical_registration', 'reference']);
+export const documentTypeEnum = pgEnum('document_type', [
+  'insurance',
+  'clinical_registration',
+  'reference',
+]);
 export const kioskActionEnum = pgEnum('kiosk_action', ['sign_in', 'sign_out']);
 export const notificationStatusEnum = pgEnum('notification_status', ['pending', 'sent', 'failed']);
 export const userStatusEnum = pgEnum('user_status', ['pending', 'active', 'suspended', 'rejected']);
@@ -121,7 +125,9 @@ export const bookings = pgTable('bookings', {
   pricePerHour: decimal('price_per_hour', { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal('total_price', { precision: 10, scale: 2 }).notNull(),
   creditUsed: decimal('credit_used', { precision: 10, scale: 2 }).notNull().default('0.00'),
-  voucherHoursUsed: decimal('voucher_hours_used', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  voucherHoursUsed: decimal('voucher_hours_used', { precision: 10, scale: 2 })
+    .notNull()
+    .default('0.00'),
   status: bookingStatusEnum('status').notNull().default('confirmed'),
   bookingType: bookingTypeEnum('booking_type').notNull(),
   cancelledAt: timestamp('cancelled_at'),
@@ -177,12 +183,18 @@ export const creditTransactions = pgTable(
     sourceType: creditSourceEnum('source_type').notNull(),
     sourceId: uuid('source_id'),
     description: text('description'),
+    revoked: boolean('revoked').notNull().default(false),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (table) => ({
     userIdIdx: index('credit_transactions_user_id_idx').on(table.userId),
     expiryDateIdx: index('credit_transactions_expiry_date_idx').on(table.expiryDate),
+    userSourceTypeIdIdx: index('credit_transactions_user_source_type_id_idx').on(
+      table.userId,
+      table.sourceType,
+      table.sourceId
+    ),
   })
 );
 
