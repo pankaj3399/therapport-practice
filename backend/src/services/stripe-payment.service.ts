@@ -149,6 +149,13 @@ export async function createSubscription(
   };
 }
 
+export interface FirstInvoiceSplit {
+  currentMonthAmountPence: number;
+  nextMonthAmountPence: number;
+  currentMonthExpiry: string; // YYYY-MM-DD
+  nextMonthExpiry: string; // YYYY-MM-DD
+}
+
 export interface CreateCheckoutSessionForSubscriptionParams {
   customerId: string;
   priceId: string;
@@ -157,6 +164,8 @@ export interface CreateCheckoutSessionForSubscriptionParams {
   cancelUrl: string;
   /** Optional: prorated amount for current month in pence; added as one-time line on first invoice. */
   proratedAmountPence?: number;
+  /** Optional: first-invoice split for webhook to grant two credit buckets without parsing line items. */
+  firstInvoiceSplit?: FirstInvoiceSplit;
 }
 
 export interface CreateCheckoutSessionForSubscriptionResult {
@@ -189,6 +198,13 @@ export async function createCheckoutSessionForSubscription(
       quantity: 1,
     });
   }
+  const subscriptionMetadata: Record<string, string> = { userId: params.userId };
+  if (params.firstInvoiceSplit) {
+    subscriptionMetadata.currentMonthAmountPence = String(params.firstInvoiceSplit.currentMonthAmountPence);
+    subscriptionMetadata.nextMonthAmountPence = String(params.firstInvoiceSplit.nextMonthAmountPence);
+    subscriptionMetadata.currentMonthExpiry = params.firstInvoiceSplit.currentMonthExpiry;
+    subscriptionMetadata.nextMonthExpiry = params.firstInvoiceSplit.nextMonthExpiry;
+  }
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: params.customerId,
@@ -196,7 +212,7 @@ export async function createCheckoutSessionForSubscription(
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     metadata: { userId: params.userId },
-    subscription_data: { metadata: { userId: params.userId } },
+    subscription_data: { metadata: subscriptionMetadata },
   });
   if (!session.url) {
     throw new Error('Stripe did not return a checkout URL');

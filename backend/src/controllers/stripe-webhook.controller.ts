@@ -57,8 +57,8 @@ export function stopIdempotencyCleanup(): void {
   clearInterval(cleanupIntervalId);
 }
 
-/** Name of the one-time prorated line we add in createCheckoutSessionForSubscription. */
-const PRORATED_CURRENT_MONTH_LABEL = 'Prorated current month';
+/** Prorated line identifier (case-insensitive match so Stripe variations still match). */
+const PRORATED_LABEL_LOWER = 'prorated current month';
 
 /** Invoice line with optionally expanded price and product (for product name). */
 type InvoiceLineWithProduct = Stripe.InvoiceLineItem & {
@@ -66,40 +66,37 @@ type InvoiceLineWithProduct = Stripe.InvoiceLineItem & {
 };
 
 function isProratedLine(line: InvoiceLineWithProduct): boolean {
-  const description = (line.description ?? '').trim();
-  if (description === PRORATED_CURRENT_MONTH_LABEL) return true;
+  const description = (line.description ?? '').trim().toLowerCase();
+  if (description === PRORATED_LABEL_LOWER || description.includes(PRORATED_LABEL_LOWER)) return true;
   const product = line.price?.product;
   const productName =
     typeof product === 'object' && product != null && 'name' in product
-      ? (product as Stripe.Product).name
-      : null;
-  return productName === PRORATED_CURRENT_MONTH_LABEL;
+      ? String((product as Stripe.Product).name ?? '').trim().toLowerCase()
+      : '';
+  return productName === PRORATED_LABEL_LOWER || productName.includes(PRORATED_LABEL_LOWER);
 }
 
 /**
  * Parse subscription invoice line items to detect first-invoice split (prorated + next month).
- * Identifies prorated line by description or price.product.name; all other lines count as next month.
- * Returns { currentMonthAmountPence, nextMonthAmountPence, proratedLinePeriodEnd } or null if not a clear split.
+ * Returns split amounts and subscriptionPeriodEnd from line items (invoice top-level period_end can equal period_start).
  */
 function parseSubscriptionInvoiceLines(invoice: Stripe.Invoice): {
   currentMonthAmountPence: number;
   nextMonthAmountPence: number;
-  proratedLinePeriodEnd: number | null;
+  subscriptionPeriodEnd: number | null;
 } | null {
   const lines = (invoice.lines?.data ?? []) as InvoiceLineWithProduct[];
   let currentMonthAmountPence = 0;
   let nextMonthAmountPence = 0;
-  let proratedLinePeriodEnd: number | null = null;
+  let subscriptionPeriodEnd: number | null = null;
 
   for (const line of lines) {
     const amount = line.amount ?? 0;
     if (amount <= 0) continue;
+    if (line.period?.end != null) subscriptionPeriodEnd = line.period.end;
 
     if (isProratedLine(line)) {
       currentMonthAmountPence += amount;
-      if (line.period?.end != null) {
-        proratedLinePeriodEnd = line.period.end;
-      }
     } else {
       nextMonthAmountPence += amount;
     }
@@ -109,7 +106,7 @@ function parseSubscriptionInvoiceLines(invoice: Stripe.Invoice): {
     return {
       currentMonthAmountPence,
       nextMonthAmountPence,
-      proratedLinePeriodEnd,
+      subscriptionPeriodEnd,
     };
   }
   return null;
@@ -453,6 +450,49 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
           break;
         }
+        // First invoice: grant from subscription metadata if present (no line parsing).
+        const billingReason = fullInvoice.billing_reason ?? '';
+        if (billingReason === 'subscription_create') {
+          const subId =
+            typeof fullInvoice.subscription === 'string'
+              ? fullInvoice.subscription
+              : (fullInvoice.subscription as { id?: string } | undefined)?.id;
+          if (subId) {
+            const subscription = await stripe.subscriptions.retrieve(subId);
+            const meta = subscription.metadata ?? {};
+            const curPence = meta.currentMonthAmountPence != null ? parseInt(meta.currentMonthAmountPence, 10) : NaN;
+            const nextPence = meta.nextMonthAmountPence != null ? parseInt(meta.nextMonthAmountPence, 10) : NaN;
+            const curExpiry = (meta.currentMonthExpiry ?? '').trim();
+            const nextExpiry = (meta.nextMonthExpiry ?? '').trim();
+            const expiryRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (
+              Number.isFinite(curPence) &&
+              curPence > 0 &&
+              Number.isFinite(nextPence) &&
+              nextPence > 0 &&
+              expiryRegex.test(curExpiry) &&
+              expiryRegex.test(nextExpiry)
+            ) {
+              const currentMonthPeriodEnd = new Date(curExpiry + 'T12:00:00Z');
+              const nextMonthPeriodEnd = new Date(nextExpiry + 'T12:00:00Z');
+              await SubscriptionService.processInitialMonthlyInvoice(
+                userId,
+                curPence,
+                nextPence,
+                currentMonthPeriodEnd,
+                nextMonthPeriodEnd
+              );
+              logger.info('Monthly subscription payment processed (from metadata)', {
+                eventId: event.id,
+                userId,
+                currentMonthAmountPence: curPence,
+                nextMonthAmountPence: nextPence,
+              });
+              break;
+            }
+          }
+        }
+        // Recurring invoice or metadata missing: use line parsing or single credit.
         const split = parseSubscriptionInvoiceLines(fullInvoice as Stripe.Invoice);
         const lineCount = fullInvoice.lines?.data?.length ?? 0;
         if (split == null && lineCount >= 2) {
@@ -469,25 +509,12 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
           });
         }
         if (split != null) {
-          const periodStart = fullInvoice.period_start ?? periodEnd;
-          // Current month expiry = last day of the month containing period_start (e.g. Feb 12 -> Feb 28).
-          const periodStartDate = new Date(periodStart * 1000);
-          const currentMonthPeriodEnd = new Date(
-            Date.UTC(
-              periodStartDate.getUTCFullYear(),
-              periodStartDate.getUTCMonth() + 1,
-              0
-            )
-          );
-          // Next month expiry = last day of the month containing period_end (e.g. Mar 12 -> Mar 31).
-          const periodEndDate = new Date(periodEnd * 1000);
-          const nextMonthPeriodEnd = new Date(
-            Date.UTC(
-              periodEndDate.getUTCFullYear(),
-              periodEndDate.getUTCMonth() + 1,
-              0
-            )
-          );
+          const effectivePeriodEnd = split.subscriptionPeriodEnd ?? periodEnd;
+          const periodEndDate = new Date(effectivePeriodEnd * 1000);
+          const periodEndYear = periodEndDate.getUTCFullYear();
+          const periodEndMonth = periodEndDate.getUTCMonth();
+          const currentMonthPeriodEnd = new Date(Date.UTC(periodEndYear, periodEndMonth, 0));
+          const nextMonthPeriodEnd = new Date(Date.UTC(periodEndYear, periodEndMonth + 1, 0));
           await SubscriptionService.processInitialMonthlyInvoice(
             userId,
             split.currentMonthAmountPence,
@@ -495,7 +522,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
             currentMonthPeriodEnd,
             nextMonthPeriodEnd
           );
-          logger.info('Monthly subscription payment processed (split prorated + next month)', {
+          logger.info('Monthly subscription payment processed (split from lines)', {
             eventId: event.id,
             userId,
             currentMonthAmountPence: split.currentMonthAmountPence,

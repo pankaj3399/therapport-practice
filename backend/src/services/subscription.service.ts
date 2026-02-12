@@ -262,6 +262,7 @@ export async function createMonthlySubscription(
 
   const prorata = ProrataService.calculateProrataAmount(join, MONTHLY_AMOUNT_GBP);
   const proratedAmountPence = Math.round(prorata.currentMonthAmount * 100);
+  const nextMonthAmountPence = Math.round(prorata.nextMonthAmount * 100);
   const customerId = await getOrCreateStripeCustomerId(userId, email, name);
   const priceId = getMonthlyPriceId();
   const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
@@ -272,6 +273,15 @@ export async function createMonthlySubscription(
     successUrl: `${baseUrl}/subscription?session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${baseUrl}/subscription`,
     proratedAmountPence,
+    firstInvoiceSplit:
+      proratedAmountPence > 0 && nextMonthAmountPence > 0
+        ? {
+            currentMonthAmountPence: proratedAmountPence,
+            nextMonthAmountPence,
+            currentMonthExpiry: prorata.currentMonthExpiry,
+            nextMonthExpiry: prorata.nextMonthExpiry,
+          }
+        : undefined,
   });
 
   return {

@@ -195,6 +195,10 @@ export class SubscriptionController {
         .where(eq(memberships.userId, userId))
         .limit(1);
       const customerId = row?.stripeCustomerId?.trim() ?? '';
+      if (!customerId) {
+        res.status(200).json({ success: true, invoices: [] });
+        return;
+      }
       const invoices = await StripePaymentService.listInvoicesForCustomer(customerId);
       res.status(200).json({ success: true, invoices });
     } catch (error) {
