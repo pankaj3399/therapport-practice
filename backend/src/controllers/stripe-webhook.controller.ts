@@ -469,23 +469,25 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
           });
         }
         if (split != null) {
+          const periodStart = fullInvoice.period_start ?? periodEnd;
+          // Current month expiry = last day of the month containing period_start (e.g. Feb 12 -> Feb 28).
+          const periodStartDate = new Date(periodStart * 1000);
+          const currentMonthPeriodEnd = new Date(
+            Date.UTC(
+              periodStartDate.getUTCFullYear(),
+              periodStartDate.getUTCMonth() + 1,
+              0
+            )
+          );
+          // Next month expiry = last day of the month containing period_end (e.g. Mar 12 -> Mar 31).
           const periodEndDate = new Date(periodEnd * 1000);
-          const currentMonthPeriodEnd =
-            split.proratedLinePeriodEnd != null
-              ? new Date(split.proratedLinePeriodEnd * 1000)
-              : new Date(
-                  Date.UTC(
-                    periodEndDate.getUTCMonth() === 0
-                      ? periodEndDate.getUTCFullYear() - 1
-                      : periodEndDate.getUTCFullYear(),
-                    periodEndDate.getUTCMonth() === 0 ? 11 : periodEndDate.getUTCMonth() - 1,
-                    1
-                  )
-                );
-          if (split.proratedLinePeriodEnd == null) {
-            currentMonthPeriodEnd.setUTCMonth(currentMonthPeriodEnd.getUTCMonth() + 1, 0);
-          }
-          const nextMonthPeriodEnd = new Date(periodEnd * 1000);
+          const nextMonthPeriodEnd = new Date(
+            Date.UTC(
+              periodEndDate.getUTCFullYear(),
+              periodEndDate.getUTCMonth() + 1,
+              0
+            )
+          );
           await SubscriptionService.processInitialMonthlyInvoice(
             userId,
             split.currentMonthAmountPence,
