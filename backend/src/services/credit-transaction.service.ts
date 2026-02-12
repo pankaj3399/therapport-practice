@@ -1,8 +1,8 @@
 import { db } from '../config/database';
 import { creditTransactions } from '../db/schema';
-import { eq, and, gte, asc, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, asc, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger.util';
-import { todayUtcString } from '../utils/date.util';
+import { todayUtcString, getMonthRange } from '../utils/date.util';
 
 export type CreditSourceType =
   | 'monthly_subscription'
@@ -201,7 +201,7 @@ export async function grantCreditsWithinTransaction(
 
 /**
  * Get all non-expired credit transactions for a user with remaining balance.
- * Sorted by grantDate ascending (FIFO).
+ * Sorted by expiryDate ascending so soonest-to-expire (e.g. February) is used before later months (e.g. March).
  */
 export async function getAvailableCredits(
   userId: string,
@@ -219,7 +219,7 @@ export async function getAvailableCredits(
         sql`${creditTransactions.remainingAmount} > 0`
       )
     )
-    .orderBy(asc(creditTransactions.grantDate));
+    .orderBy(asc(creditTransactions.expiryDate), asc(creditTransactions.grantDate));
   return rows.map((r) => ({
     id: r.id,
     amount: parseFloat(r.amount.toString()),
@@ -237,28 +237,38 @@ export async function getAvailableCredits(
 export type CreditTransactionClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
- * Use credits within an existing transaction (FIFO). Caller must run inside db.transaction.
+ * Use credits within an existing transaction. When bookingDate is provided, only credits expiring
+ * in the same month as the booking are used (e.g. February bookings use only February credits);
+ * when that month is exhausted, caller should require payment, not use next month's credits.
+ * Deducts from soonest-expiring first within that month. Caller must run inside db.transaction.
  * Throws if insufficient credits.
  */
 export async function useCreditsWithinTransaction(
   tx: CreditTransactionClient,
   userId: string,
-  amount: number
+  amount: number,
+  options?: { bookingDate?: string }
 ): Promise<UseCreditsResult> {
   if (amount <= 0) return { used: [], totalUsed: 0 };
+
+  const todayStr = todayUtcString();
+  const conditions = [
+    eq(creditTransactions.userId, userId),
+    eq(creditTransactions.revoked, false),
+    gte(creditTransactions.expiryDate, todayStr),
+    sql`${creditTransactions.remainingAmount} > 0`,
+  ];
+  if (options?.bookingDate) {
+    const { firstDay, lastDay } = getMonthRange(options.bookingDate);
+    conditions.push(gte(creditTransactions.expiryDate, firstDay));
+    conditions.push(lte(creditTransactions.expiryDate, lastDay));
+  }
 
   const rows = await tx
     .select()
     .from(creditTransactions)
-    .where(
-      and(
-        eq(creditTransactions.userId, userId),
-        eq(creditTransactions.revoked, false),
-        gte(creditTransactions.expiryDate, todayUtcString()),
-        sql`${creditTransactions.remainingAmount} > 0`
-      )
-    )
-    .orderBy(asc(creditTransactions.grantDate))
+    .where(and(...conditions))
+    .orderBy(asc(creditTransactions.expiryDate), asc(creditTransactions.grantDate))
     .for('update');
 
   const totalAvailableCents = rows.reduce(
@@ -378,18 +388,26 @@ export async function getCreditSummary(userId: string): Promise<CreditSummaryRes
  * totalAvailable = sum of remainingAmount for non-expired transactions with remaining > 0.
  * totalGranted = sum of amount for all transactions (including expired).
  * totalUsed = sum of usedAmount for all transactions (including expired).
+ * When forBookingMonth (YYYY-MM-DD) is provided, totalAvailable only counts credits whose
+ * expiryDate falls in that month (so February bookings only see February credits).
  */
 export async function getCreditBalanceTotals(
-  userId: string
+  userId: string,
+  options?: { forBookingMonth?: string }
 ): Promise<{ totalAvailable: number; totalGranted: number; totalUsed: number }> {
   const dateStr = todayUtcString();
+  const expiryFilter = options?.forBookingMonth
+    ? (() => {
+        const { firstDay, lastDay } = getMonthRange(options.forBookingMonth);
+        return sql`${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.expiryDate} >= ${firstDay} AND ${creditTransactions.expiryDate} <= ${lastDay} AND ${creditTransactions.remainingAmount} > 0 AND ${creditTransactions.revoked} = false`;
+      })()
+    : sql`${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 AND ${creditTransactions.revoked} = false`;
+
   const [row] = await db
     .select({
       totalGranted: sql<number | string>`COALESCE(SUM(${creditTransactions.amount}), 0)`,
       totalUsed: sql<number | string>`COALESCE(SUM(${creditTransactions.usedAmount}), 0)`,
-      totalAvailable: sql<
-        number | string
-      >`COALESCE(SUM(CASE WHEN ${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 AND ${creditTransactions.revoked} = false THEN ${creditTransactions.remainingAmount} ELSE 0 END), 0)`,
+      totalAvailable: sql<number | string>`COALESCE(SUM(CASE WHEN ${expiryFilter} THEN ${creditTransactions.remainingAmount} ELSE 0 END), 0)`,
     })
     .from(creditTransactions)
     .where(eq(creditTransactions.userId, userId));

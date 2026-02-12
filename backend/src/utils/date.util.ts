@@ -60,6 +60,18 @@ export function todayUtcString(): string {
 }
 
 /**
+ * For a given date string (YYYY-MM-DD), return the first and last day of that month as YYYY-MM-DD.
+ * Used to restrict credit use to the booking month (only use credits expiring in that month).
+ */
+export function getMonthRange(dateStr: string): { firstDay: string; lastDay: string } {
+  const [y, m] = dateStr.split('-').map(Number);
+  const firstDay = `${y}-${String(m).padStart(2, '0')}-01`;
+  const lastDate = new Date(Date.UTC(y, m, 0)); // day 0 of next month = last day of this month
+  const lastDay = lastDate.toISOString().split('T')[0];
+  return { firstDay, lastDay };
+}
+
+/**
  * Get a date N days from today in UTC as YYYY-MM-DD.
  */
 export function addDaysUtcString(days: number): string {

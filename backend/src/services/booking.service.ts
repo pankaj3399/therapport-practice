@@ -554,7 +554,9 @@ export async function createBooking(
       : Math.round((totalPriceCents * (durationHours - voucherHoursToUse)) / durationHours);
   const creditAmountNeeded = creditAmountCents / 100;
 
-  const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId);
+  const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId, {
+    forBookingMonth: date,
+  });
   if (totalAvailable < creditAmountNeeded) {
     const amountToPayGBP = creditAmountNeeded - totalAvailable;
     const amountToPayPence = Math.round(amountToPayGBP * 100);
@@ -659,7 +661,9 @@ export async function createBooking(
     }
 
     if (creditAmountNeeded > 0) {
-      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditAmountNeeded);
+      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditAmountNeeded, {
+        bookingDate: date,
+      });
     }
 
     return { id: created.id, creditUsed: creditAmountNeeded };
@@ -1035,7 +1039,9 @@ export async function updateBooking(
     let finalVoucherHoursUsed = newVoucherHoursToUse;
 
     if (creditDelta > 0) {
-      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditDelta);
+      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditDelta, {
+        bookingDate: newDate,
+      });
     } else if (creditDelta < 0) {
       const [by, bmo] = newDate.split('-').map(Number);
       const lastDay = new Date(Date.UTC(by, bmo, 0));
@@ -1065,7 +1071,9 @@ export async function updateBooking(
         const shortfall = voucherHoursDelta - remainingForDeduct;
         const shortfallCredit = (totalPriceCents * shortfall) / durationHours / 100;
         const totalCreditToUse = (creditDelta > 0 ? creditDelta : 0) + shortfallCredit;
-        const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId);
+        const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId, {
+          forBookingMonth: newDate,
+        });
         if (totalAvailable < totalCreditToUse) {
           const amountToPayGBP = totalCreditToUse - totalAvailable;
           const amountToPayPence = Math.round(amountToPayGBP * 100);
@@ -1103,7 +1111,8 @@ export async function updateBooking(
         await CreditTransactionService.useCreditsWithinTransaction(
           tx,
           userId,
-          shortfallCredit
+          shortfallCredit,
+          { bookingDate: newDate }
         );
         finalCreditUsed = newCreditNeeded + shortfallCredit;
         finalVoucherHoursUsed = oldVoucherHoursUsed + actualVoucherDeduct;
