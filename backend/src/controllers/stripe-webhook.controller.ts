@@ -57,6 +57,48 @@ export function stopIdempotencyCleanup(): void {
   clearInterval(cleanupIntervalId);
 }
 
+/** Name of the one-time prorated line we add in createCheckoutSessionForSubscription. */
+const PRORATED_CURRENT_MONTH_LABEL = 'Prorated current month';
+
+/**
+ * Parse subscription invoice line items to detect first-invoice split (prorated + next month).
+ * Returns { currentMonthAmountPence, nextMonthAmountPence, proratedLinePeriodEnd } or null if not a clear split.
+ */
+function parseSubscriptionInvoiceLines(invoice: Stripe.Invoice): {
+  currentMonthAmountPence: number;
+  nextMonthAmountPence: number;
+  proratedLinePeriodEnd: number | null;
+} | null {
+  const lines = invoice.lines?.data ?? [];
+  let currentMonthAmountPence = 0;
+  let nextMonthAmountPence = 0;
+  let proratedLinePeriodEnd: number | null = null;
+
+  for (const line of lines) {
+    const amount = line.amount ?? 0;
+    const description = (line.description ?? '').trim();
+    const isSubscriptionLine = line.subscription != null;
+
+    if (description === PRORATED_CURRENT_MONTH_LABEL && !isSubscriptionLine) {
+      currentMonthAmountPence += amount;
+      if (line.period?.end != null) {
+        proratedLinePeriodEnd = line.period.end;
+      }
+    } else if (isSubscriptionLine) {
+      nextMonthAmountPence += amount;
+    }
+  }
+
+  if (currentMonthAmountPence > 0 && nextMonthAmountPence > 0) {
+    return {
+      currentMonthAmountPence,
+      nextMonthAmountPence,
+      proratedLinePeriodEnd,
+    };
+  }
+  return null;
+}
+
 /**
  * Stripe webhook handler: verify signature, enforce idempotency, dispatch by event type.
  * Credit granting and subscription updates are implemented in PR 8+; here we only verify and acknowledge.
@@ -370,33 +412,68 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
           break;
         }
-        let amountPaidPence = invoice.amount_paid;
-        if (amountPaidPence == null) {
-          const full = await stripe.invoices.retrieve(invoice.id);
-          amountPaidPence = full.amount_paid ?? 0;
-        }
+        // Fetch full invoice with lines so we can detect prorated first-invoice split.
+        const fullInvoice =
+          invoice.lines?.data?.length != null
+            ? invoice
+            : await stripe.invoices.retrieve(invoice.id, { expand: ['lines.data'] });
+        let amountPaidPence = fullInvoice.amount_paid ?? 0;
         if (amountPaidPence <= 0) {
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
           break;
         }
         // Prefer userId from invoice parent metadata (Stripe snapshots subscription metadata at finalization) to avoid synchronous stripe.subscriptions.retrieve.
-        let userId: string | undefined = invoice.parent?.subscription_details?.metadata?.userId;
+        let userId: string | undefined = fullInvoice.parent?.subscription_details?.metadata?.userId;
         if (userId == null) {
           const subId =
-            typeof invoice.subscription === 'string'
-              ? invoice.subscription
-              : (invoice.subscription as { id?: string } | undefined)?.id;
+            typeof fullInvoice.subscription === 'string'
+              ? fullInvoice.subscription
+              : (fullInvoice.subscription as { id?: string } | undefined)?.id;
           if (subId) {
             const subscription = await stripe.subscriptions.retrieve(subId);
             userId = subscription.metadata?.userId ?? undefined;
           }
         }
-        if (userId != null) {
+        if (userId == null) {
+          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
+          break;
+        }
+        const split = parseSubscriptionInvoiceLines(fullInvoice as Stripe.Invoice);
+        if (split != null) {
+          const periodEndDate = new Date(periodEnd * 1000);
+          const currentMonthPeriodEnd =
+            split.proratedLinePeriodEnd != null
+              ? new Date(split.proratedLinePeriodEnd * 1000)
+              : new Date(
+                  Date.UTC(
+                    periodEndDate.getUTCMonth() === 0
+                      ? periodEndDate.getUTCFullYear() - 1
+                      : periodEndDate.getUTCFullYear(),
+                    periodEndDate.getUTCMonth() === 0 ? 11 : periodEndDate.getUTCMonth() - 1,
+                    1
+                  )
+                );
+          if (split.proratedLinePeriodEnd == null) {
+            currentMonthPeriodEnd.setUTCMonth(currentMonthPeriodEnd.getUTCMonth() + 1, 0);
+          }
+          const nextMonthPeriodEnd = new Date(periodEnd * 1000);
+          await SubscriptionService.processInitialMonthlyInvoice(
+            userId,
+            split.currentMonthAmountPence,
+            split.nextMonthAmountPence,
+            currentMonthPeriodEnd,
+            nextMonthPeriodEnd
+          );
+          logger.info('Monthly subscription payment processed (split prorated + next month)', {
+            eventId: event.id,
+            userId,
+            currentMonthAmountPence: split.currentMonthAmountPence,
+            nextMonthAmountPence: split.nextMonthAmountPence,
+          });
+        } else {
           const paymentDate = new Date(periodEnd * 1000);
           await SubscriptionService.processMonthlyPayment(userId, paymentDate, amountPaidPence);
           logger.info('Monthly subscription payment processed', { eventId: event.id, userId });
-        } else {
-          logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
         }
         break;
       }

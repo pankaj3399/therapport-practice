@@ -358,6 +358,47 @@ export async function processMonthlyPayment(
 }
 
 /**
+ * Process first monthly subscription invoice when it contains both a prorated current month
+ * and a full next month. Grants two separate credit buckets with correct expiries.
+ */
+export async function processInitialMonthlyInvoice(
+  userId: string,
+  currentMonthAmountPence: number,
+  nextMonthAmountPence: number,
+  currentMonthPeriodEnd: Date,
+  nextMonthPeriodEnd: Date
+): Promise<void> {
+  if (currentMonthAmountPence > 0) {
+    const y = currentMonthPeriodEnd.getUTCFullYear();
+    const m = currentMonthPeriodEnd.getUTCMonth();
+    const currentMonthExpiry = getLastDayOfMonthString(y, m);
+    const amountGBP = currentMonthAmountPence / 100;
+    await CreditTransactionService.grantCredits(
+      userId,
+      amountGBP,
+      currentMonthExpiry,
+      'monthly_subscription',
+      undefined,
+      'Monthly subscription payment (current month prorated)'
+    );
+  }
+  if (nextMonthAmountPence > 0) {
+    const y = nextMonthPeriodEnd.getUTCFullYear();
+    const m = nextMonthPeriodEnd.getUTCMonth();
+    const nextMonthExpiry = getLastDayOfMonthString(y, m);
+    const amountGBP = nextMonthAmountPence / 100;
+    await CreditTransactionService.grantCredits(
+      userId,
+      amountGBP,
+      nextMonthExpiry,
+      'monthly_subscription',
+      undefined,
+      'Monthly subscription payment (next month)'
+    );
+  }
+}
+
+/**
  * Process ad-hoc subscription payment success (called from webhook when payment_intent.succeeded
  * with metadata.type === 'ad_hoc_subscription'). Grants £150 credit and updates membership.
  */
