@@ -35,8 +35,7 @@ export interface CreditSummary {
 export class CreditService {
   /**
    * Get credit balance for a user.
-   * For ad_hoc members: uses transaction-based credits (non-expired, sum of remainingAmount).
-   * For permanent members: returns null (no monthly credit in this system).
+   * Uses transaction-based credits (non-expired, sum of remainingAmount) regardless of membership type.
    * Response shape is compatible with dashboard (currentMonth, nextMonth, membershipType, byMonth).
    */
   static async getCreditBalance(userId: string): Promise<CreditSummary> {
@@ -44,14 +43,6 @@ export class CreditService {
       const membership = await db.query.memberships.findFirst({
         where: eq(memberships.userId, userId),
       });
-
-      if (!membership || membership.type !== 'ad_hoc') {
-        return {
-          currentMonth: null,
-          nextMonth: null,
-          membershipType: membership?.type ?? null,
-        };
-      }
 
       const now = new Date();
       const currentMonthStr = formatMonthYear(now);
@@ -92,7 +83,7 @@ export class CreditService {
           nextMonthAllocation: 0,
         },
         byMonth,
-        membershipType: membership.type,
+        membershipType: membership?.type ?? null,
       };
     } catch (error) {
       const now = new Date();
