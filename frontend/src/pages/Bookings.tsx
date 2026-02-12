@@ -135,6 +135,14 @@ const ALL_BOOKING_TYPES = [
   { value: 'internal' as const, label: 'Internal' },
 ];
 
+function formatMonthKeyToLabel(month: string): string {
+  // month is expected to be "YYYY-MM"
+  const [year, monthStr] = month.split('-');
+  const monthIndex = Number(monthStr) - 1;
+  const date = new Date(Number(year), Number.isNaN(monthIndex) ? 0 : monthIndex, 1);
+  return date.toLocaleString('en-GB', { month: 'short', year: 'numeric' });
+}
+
 export const Bookings: React.FC = () => {
   const { user } = useAuth();
   const postSuccessControllerRef = useRef<AbortController | null>(null);
@@ -460,6 +468,14 @@ export const Bookings: React.FC = () => {
     (b) => b.status === 'confirmed' && b.bookingDate >= today
   );
 
+  const monthlyCreditBreakdown = useMemo(
+    () =>
+      credit?.byMonth
+        ? [...credit.byMonth].sort((a, b) => a.month.localeCompare(b.month))
+        : [],
+    [credit?.byMonth]
+  );
+
   const handlePaymentModalOpenChange = (open: boolean) => {
     setPaymentModalOpen(open);
     if (!open) {
@@ -511,12 +527,29 @@ export const Bookings: React.FC = () => {
             {loadingCredit ? (
               <p className="text-sm text-slate-500">Loading…</p>
             ) : credit?.currentMonth ? (
-              <p className="text-lg font-bold text-primary">
-                £{credit.currentMonth.remainingCredit.toFixed(2)} available
-                <span className="text-sm font-normal text-slate-500 dark:text-slate-400 ml-2">
-                  ({credit.currentMonth.monthYear})
-                </span>
-              </p>
+              <div className="space-y-2">
+                <p className="text-lg font-bold text-primary">
+                  £{credit.currentMonth.remainingCredit.toFixed(2)} available
+                  <span className="text-sm font-normal text-slate-500 dark:text-slate-400 ml-2">
+                    ({credit.currentMonth.monthYear})
+                  </span>
+                </p>
+                {monthlyCreditBreakdown.length > 0 && (
+                  <div className="text-sm text-slate-600 dark:text-slate-300">
+                    <p className="font-medium">By expiry month</p>
+                    <ul className="mt-1 space-y-0.5">
+                      {monthlyCreditBreakdown.map(({ month, remainingCredit }) => (
+                        <li key={month} className="flex justify-between">
+                          <span>{formatMonthKeyToLabel(month)}</span>
+                          <span className="tabular-nums">
+                            £{remainingCredit.toFixed(2)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             ) : (
               <p className="text-sm text-slate-500">
                 {credit?.membershipType === 'permanent'

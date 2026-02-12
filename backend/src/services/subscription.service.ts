@@ -411,26 +411,50 @@ export async function linkMonthlySubscriptionToMembership(
   userId: string,
   stripeSubscriptionId: string
 ): Promise<void> {
-  const [membership] = await db
-    .select()
-    .from(memberships)
-    .where(eq(memberships.userId, userId))
-    .limit(1);
-  if (!membership) {
-    logger.warn('linkMonthlySubscriptionToMembership: no membership found', {
-      userId,
-      stripeSubscriptionId,
-    });
-    return;
+  try {
+    const [membership] = await db
+      .select()
+      .from(memberships)
+      .where(eq(memberships.userId, userId))
+      .limit(1);
+
+    if (!membership) {
+      // Older users or non-standard flows may not have a membership row yet.
+      // Auto-create an ad-hoc membership linked to this monthly Stripe subscription
+      // so subscription status and booking permissions stay consistent.
+      await db.insert(memberships).values({
+        userId,
+        type: 'ad_hoc',
+        marketingAddon: false,
+        subscriptionType: 'monthly',
+        stripeSubscriptionId,
+      });
+      logger.info('linkMonthlySubscriptionToMembership: created membership for user', {
+        userId,
+        stripeSubscriptionId,
+      });
+      return;
+    }
+
+    await db
+      .update(memberships)
+      .set({
+        stripeSubscriptionId,
+        subscriptionType: 'monthly',
+        updatedAt: new Date(),
+      })
+      .where(eq(memberships.id, membership.id));
+  } catch (error) {
+    logger.error(
+      'linkMonthlySubscriptionToMembership: failed to link or create membership',
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        userId,
+        stripeSubscriptionId,
+      }
+    );
+    throw error;
   }
-  await db
-    .update(memberships)
-    .set({
-      stripeSubscriptionId,
-      subscriptionType: 'monthly',
-      updatedAt: new Date(),
-    })
-    .where(eq(memberships.id, membership.id));
 }
 
 /** Alias for practitioner UI; same shape as SubscriptionStatusResult. */
