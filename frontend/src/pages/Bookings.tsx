@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { AxiosError } from 'axios';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import {
   type BookingItem,
   type RoomItem,
   type CreditSummary,
+  type CreateBookingPaymentRequiredError,
 } from '@/services/api';
 import { toZonedTime } from 'date-fns-tz';
 import { canCancelBooking } from '@/lib/booking-utils';
@@ -372,51 +374,38 @@ export const Bookings: React.FC = () => {
         bookingType: user?.role === 'admin' ? bookingType : 'ad_hoc',
       });
       const data = res.data;
-      if (data.success && !data.paymentRequired && data.booking) {
+      if (data.success && 'booking' in data) {
         setCreateSuccess('Booking created.');
         const c = new AbortController();
         postSuccessControllerRef.current = c;
         fetchBookings(c.signal);
         fetchCalendar(c.signal);
         fetchCredit(c.signal);
-      } else if (data.success && data.paymentRequired) {
-        if (!data.clientSecret) {
-          setCreateError('Payment required but payment setup failed. Please try again.');
-          return;
-        }
-        setCreateError(null);
-        setPaymentClientSecret(data.clientSecret);
-        setPaymentAmountPence(data.amountPence);
-        setPaymentModalOpen(true);
-      } else if (!data.success) {
+      } else if (!data.success && 'error' in data) {
         setCreateError(data.error ?? 'Failed to create booking');
       } else {
         setCreateError('Failed to create booking');
       }
     } catch (err: unknown) {
-      // Check if this is a payment required error (402 status)
-      if (
-        err &&
-        typeof err === 'object' &&
-        'response' in err &&
-        (err as { response?: { data?: unknown; status?: number } }).response
-      ) {
-        const response = (err as { response: { data?: unknown; status?: number } }).response;
-        const data = response.data as
-          | { paymentRequired?: boolean; clientSecret?: string; amountPence?: number; error?: string }
-          | undefined;
+      // Use AxiosError for type narrowing and verify HTTP status code
+      if (err instanceof AxiosError && err.response) {
+        const status = err.response.status;
+        const data = err.response.data as CreateBookingPaymentRequiredError | { error?: string } | undefined;
 
         // Handle payment required case (backend returns 402 with paymentRequired: true)
-        if (data?.paymentRequired && data.clientSecret && data.amountPence != null) {
-          setCreateError(null);
-          setPaymentClientSecret(data.clientSecret);
-          setPaymentAmountPence(data.amountPence);
-          setPaymentModalOpen(true);
-          return;
+        if (status === 402 && data && 'paymentRequired' in data && data.paymentRequired) {
+          const paymentData = data as CreateBookingPaymentRequiredError;
+          if (paymentData.clientSecret && paymentData.amountPence != null) {
+            setCreateError(null);
+            setPaymentClientSecret(paymentData.clientSecret);
+            setPaymentAmountPence(paymentData.amountPence);
+            setPaymentModalOpen(true);
+            return;
+          }
         }
 
         // Handle regular error case
-        const errorMsg = data?.error ?? 'Failed to create booking';
+        const errorMsg = (data && 'error' in data ? data.error : undefined) ?? 'Failed to create booking';
         setCreateError(errorMsg);
       } else {
         setCreateError('Failed to create booking');

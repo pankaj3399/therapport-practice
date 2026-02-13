@@ -219,25 +219,20 @@ export interface InvoiceItem {
   invoice_pdf: string | null;
 }
 
-/** Discriminated union for createBooking response; narrow via success and paymentRequired. */
+/** Response type for successful createBooking calls (2xx status codes). */
 export type CreateBookingResponse =
-  | { success: true; booking: { id: string }; paymentRequired?: false }
-  | {
-      success: true;
-      paymentRequired: true;
-      clientSecret: string;
-      paymentIntentId: string;
-      amountPence: number;
-    }
-  | {
+  | { success: true; booking: { id: string } }
+  | { success: false; error?: string };
+
+/** Error response payload for 402 Payment Required (appears in AxiosError.response.data). */
+export type CreateBookingPaymentRequiredError = {
       success: false;
       paymentRequired: true;
       clientSecret: string;
       paymentIntentId: string;
       amountPence: number;
       error?: string;
-    }
-  | { success: false; error?: string };
+};
 
 // Practitioner API methods
 export const practitionerApi = {
