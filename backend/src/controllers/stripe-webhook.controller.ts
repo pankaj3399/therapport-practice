@@ -217,42 +217,17 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               });
               break;
             }
-            const sourceId = paymentIntentIdToSourceId(paymentIntent.id);
-            const alreadyGranted = await CreditTransactionService.hasCreditForSourceId(
-              userId,
-              'pay_difference',
-              sourceId
-            );
-            if (alreadyGranted) {
-              logger.info('Pay-the-difference credits already granted (idempotent)', {
-                eventId: event.id,
-                userId,
-                roomId,
-                date,
-                paymentIntentId: paymentIntent.id,
-              });
-            } else {
-              await grantPayDifferenceCredits(
-                userId,
-                amountReceived,
-                'Pay the difference for room booking',
-                sourceId
-              );
-              logger.info('Pay-the-difference credits granted', {
-                eventId: event.id,
-                userId,
-                roomId,
-                date,
-                paymentIntentId: paymentIntent.id,
-              });
-            }
+            // For pay-the-difference, payment directly covers the shortfall
+            // Do NOT grant credits - pass payment amount to createBooking instead
+            const paymentAmountGBP = amountReceived / 100;
             const result = await BookingService.createBooking(
               userId,
               roomId,
               date,
               startTime,
               endTime,
-              bookingType
+              bookingType,
+              paymentAmountGBP
             );
             if ('paymentRequired' in result && result.paymentRequired) {
               logger.error('Pay-the-difference createBooking returned paymentRequired', {
@@ -426,9 +401,9 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
           break;
         }
         // Fetch full invoice with lines and price.product so we can detect prorated line by product name.
-        const fullInvoice = await stripe.invoices.retrieve(invoice.id, {
+        const fullInvoice = (await stripe.invoices.retrieve(invoice.id, {
           expand: ['lines.data.price.product'],
-        });
+        })) as Stripe.Invoice;
         let amountPaidPence = fullInvoice.amount_paid ?? 0;
         if (amountPaidPence <= 0) {
           logger.info('Stripe webhook event received', { eventId: event.id, type: event.type });
@@ -437,10 +412,12 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         // Prefer userId from invoice parent metadata (Stripe snapshots subscription metadata at finalization) to avoid synchronous stripe.subscriptions.retrieve.
         let userId: string | undefined = fullInvoice.parent?.subscription_details?.metadata?.userId;
         if (userId == null) {
+          // subscription can be string (ID) or expanded Subscription object
+          const subscriptionField = (fullInvoice as any).subscription;
           const subId =
-            typeof fullInvoice.subscription === 'string'
-              ? fullInvoice.subscription
-              : (fullInvoice.subscription as { id?: string } | undefined)?.id;
+            typeof subscriptionField === 'string'
+              ? subscriptionField
+              : (subscriptionField as Stripe.Subscription | null | undefined)?.id;
           if (subId) {
             const subscription = await stripe.subscriptions.retrieve(subId);
             userId = subscription.metadata?.userId ?? undefined;
@@ -453,10 +430,12 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         // First invoice: grant from subscription metadata if present (no line parsing).
         const billingReason = fullInvoice.billing_reason ?? '';
         if (billingReason === 'subscription_create') {
+          // subscription can be string (ID) or expanded Subscription object
+          const subscriptionField = (fullInvoice as any).subscription;
           const subId =
-            typeof fullInvoice.subscription === 'string'
-              ? fullInvoice.subscription
-              : (fullInvoice.subscription as { id?: string } | undefined)?.id;
+            typeof subscriptionField === 'string'
+              ? subscriptionField
+              : (subscriptionField as Stripe.Subscription | null | undefined)?.id;
           if (subId) {
             const subscription = await stripe.subscriptions.retrieve(subId);
             const meta = subscription.metadata ?? {};
