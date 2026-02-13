@@ -394,11 +394,33 @@ export const Bookings: React.FC = () => {
         setCreateError('Failed to create booking');
       }
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
-          : null;
-      setCreateError(msg ?? 'Failed to create booking');
+      // Check if this is a payment required error (402 status)
+      if (
+        err &&
+        typeof err === 'object' &&
+        'response' in err &&
+        (err as { response?: { data?: unknown; status?: number } }).response
+      ) {
+        const response = (err as { response: { data?: unknown; status?: number } }).response;
+        const data = response.data as
+          | { paymentRequired?: boolean; clientSecret?: string; amountPence?: number; error?: string }
+          | undefined;
+
+        // Handle payment required case (backend returns 402 with paymentRequired: true)
+        if (data?.paymentRequired && data.clientSecret && data.amountPence != null) {
+          setCreateError(null);
+          setPaymentClientSecret(data.clientSecret);
+          setPaymentAmountPence(data.amountPence);
+          setPaymentModalOpen(true);
+          return;
+        }
+
+        // Handle regular error case
+        const errorMsg = data?.error ?? 'Failed to create booking';
+        setCreateError(errorMsg);
+      } else {
+        setCreateError('Failed to create booking');
+      }
     } finally {
       setSubmitting(false);
     }

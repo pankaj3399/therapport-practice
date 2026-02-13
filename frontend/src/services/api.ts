@@ -229,6 +229,14 @@ export type CreateBookingResponse =
       paymentIntentId: string;
       amountPence: number;
     }
+  | {
+      success: false;
+      paymentRequired: true;
+      clientSecret: string;
+      paymentIntentId: string;
+      amountPence: number;
+      error?: string;
+    }
   | { success: false; error?: string };
 
 // Practitioner API methods
