@@ -13,6 +13,18 @@ function paymentIntentIdToSourceId(paymentIntentId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
+/**
+ * Extract subscription ID from a Stripe Invoice.
+ * The subscription field can be a string (ID) or an expanded Subscription object.
+ */
+function extractSubscriptionId(invoice: Stripe.Invoice): string | undefined {
+  const subscriptionField = (invoice as any).subscription;
+  if (typeof subscriptionField === 'string') {
+    return subscriptionField;
+  }
+  return (subscriptionField as Stripe.Subscription | null | undefined)?.id;
+}
+
 /** Grant pay-the-difference credits: amountReceived (pence) to GBP, expiry = last day of current UTC month. */
 async function grantPayDifferenceCredits(
   userId: string,
@@ -412,12 +424,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         // Prefer userId from invoice parent metadata (Stripe snapshots subscription metadata at finalization) to avoid synchronous stripe.subscriptions.retrieve.
         let userId: string | undefined = fullInvoice.parent?.subscription_details?.metadata?.userId;
         if (userId == null) {
-          // subscription can be string (ID) or expanded Subscription object
-          const subscriptionField = (fullInvoice as any).subscription;
-          const subId =
-            typeof subscriptionField === 'string'
-              ? subscriptionField
-              : (subscriptionField as Stripe.Subscription | null | undefined)?.id;
+          const subId = extractSubscriptionId(fullInvoice);
           if (subId) {
             const subscription = await stripe.subscriptions.retrieve(subId);
             userId = subscription.metadata?.userId ?? undefined;
@@ -430,12 +437,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         // First invoice: grant from subscription metadata if present (no line parsing).
         const billingReason = fullInvoice.billing_reason ?? '';
         if (billingReason === 'subscription_create') {
-          // subscription can be string (ID) or expanded Subscription object
-          const subscriptionField = (fullInvoice as any).subscription;
-          const subId =
-            typeof subscriptionField === 'string'
-              ? subscriptionField
-              : (subscriptionField as Stripe.Subscription | null | undefined)?.id;
+          const subId = extractSubscriptionId(fullInvoice);
           if (subId) {
             const subscription = await stripe.subscriptions.retrieve(subId);
             const meta = subscription.metadata ?? {};

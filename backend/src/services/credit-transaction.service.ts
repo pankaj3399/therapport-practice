@@ -394,7 +394,8 @@ export async function getCreditBalanceTotals(
 ): Promise<{ totalAvailable: number; totalGranted: number; totalUsed: number }> {
   const dateStr = todayUtcString();
   // Credits are usable if they are not expired 
-  const expiryFilter = sql`${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 AND ${creditTransactions.revoked} = false`;
+  const revokedCondition = eq(creditTransactions.revoked, false);
+  const expiryFilter = sql`${creditTransactions.expiryDate} >= ${dateStr} AND ${creditTransactions.remainingAmount} > 0 AND ${revokedCondition}`;
 
   const [row] = await db
     .select({

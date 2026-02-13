@@ -104,8 +104,8 @@ function hasActiveSubscription(membership: {
     return true;
   }
   
-  // Check for ad_hoc subscription
-  if (membership.subscriptionType !== null) {
+  // Check for ad_hoc subscription (exclude monthly from this check)
+  if (membership.subscriptionType === 'ad_hoc') {
     const endDate =
       membership.subscriptionEndDate != null
         ? String(membership.subscriptionEndDate).slice(0, 10)
@@ -592,12 +592,6 @@ export async function createBooking(
     forBookingMonth: date,
   });
   
-  // When paymentAmountMade is provided (from webhook), it covers part of the shortfall
-  // Calculate effective credit needed: original need minus payment already made
-  const effectiveCreditNeeded = paymentAmountMade != null 
-    ? Math.max(0, creditAmountNeeded - paymentAmountMade)
-    : creditAmountNeeded;
-  
   // Total available resources: existing credits + payment already made (if any)
   const totalAvailableResources = totalAvailable + (paymentAmountMade ?? 0);
   
@@ -605,11 +599,20 @@ export async function createBooking(
     // Only request payment if paymentAmountMade is not provided (initial booking attempt)
     // If paymentAmountMade is provided, we're in the webhook flow and should have enough
     if (paymentAmountMade != null) {
-      throw new BookingValidationError(
-        `Insufficient resources. You need £${creditAmountNeeded.toFixed(
-          2
-        )} but have £${totalAvailable.toFixed(2)} credits and £${paymentAmountMade.toFixed(2)} payment.`
-      );
+
+      // Use Error instead of BookingValidationError to indicate it's a system error, not a client validation error.
+      const errorMessage = `Insufficient resources after payment. Need £${creditAmountNeeded.toFixed(
+        2
+      )} but have £${totalAvailable.toFixed(2)} credits and £${paymentAmountMade.toFixed(2)} payment.`;
+      logger.error('Insufficient resources after payment in webhook flow', {
+        userId,
+        roomId,
+        date,
+        creditAmountNeeded,
+        totalAvailable,
+        paymentAmountMade,
+      });
+      throw new Error(errorMessage);
     }
     
     const amountToPayGBP = creditAmountNeeded - totalAvailable;
@@ -700,7 +703,7 @@ export async function createBooking(
         endTime: endTimeDb,
         pricePerHour: pricePerHour.toFixed(2),
         totalPrice: totalPrice.toFixed(2),
-        creditUsed: creditAmountNeeded.toFixed(2), // Store total credit needed for record
+        creditUsed: creditToUse.toFixed(2), // Store actual credits consumed (not including payment amount)
         voucherHoursUsed: voucherHoursToUse.toFixed(2),
         status: 'confirmed',
         bookingType,
@@ -734,7 +737,7 @@ export async function createBooking(
       });
     }
 
-    return { id: created.id, creditUsed: creditAmountNeeded };
+    return { id: created.id, creditUsed: creditToUse };
   });
 
   // Send confirmation email (fire-and-forget; do not fail the request if email fails)
