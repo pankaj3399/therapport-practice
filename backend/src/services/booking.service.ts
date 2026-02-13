@@ -88,6 +88,37 @@ export async function canUserBook(userId: string): Promise<{ ok: boolean; reason
 }
 
 /**
+ * Check if membership has an active subscription (monthly or ad_hoc).
+ * Monthly: subscriptionType === 'monthly' && stripeSubscriptionId is not null
+ * Ad_hoc: subscriptionType is not null && subscriptionEndDate >= today
+ */
+function hasActiveSubscription(membership: {
+  subscriptionType: string | null;
+  stripeSubscriptionId: string | null;
+  subscriptionEndDate: string | Date | null;
+}): boolean {
+  const today = todayUtcString();
+  
+  // Check for monthly subscription
+  if (membership.subscriptionType === 'monthly' && membership.stripeSubscriptionId) {
+    return true;
+  }
+  
+  // Check for ad_hoc subscription (exclude monthly from this check)
+  if (membership.subscriptionType === 'ad_hoc') {
+    const endDate =
+      membership.subscriptionEndDate != null
+        ? String(membership.subscriptionEndDate).slice(0, 10)
+        : null;
+    if (endDate && endDate >= today) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
  * Get room with location name (for pricing). Throws if room not found.
  */
 async function getRoomWithLocation(
@@ -498,6 +529,8 @@ export type CreateBookingResult =
 /**
  * Create a booking using credits and/or vouchers. When insufficient credits and Stripe is configured,
  * returns paymentRequired with clientSecret for pay-the-difference (PR 9).
+ * @param paymentAmountMade - Optional payment amount already made (in GBP). When provided, this amount
+ * is used to cover the shortfall along with existing credits, and no new credits are granted.
  */
 export async function createBooking(
   userId: string,
@@ -505,7 +538,8 @@ export async function createBooking(
   date: string,
   startTime: string,
   endTime: string,
-  bookingType: 'permanent_recurring' | 'ad_hoc' | 'free' | 'internal' = 'ad_hoc'
+  bookingType: 'permanent_recurring' | 'ad_hoc' | 'free' | 'internal' = 'ad_hoc',
+  paymentAmountMade?: number
 ): Promise<CreateBookingResult> {
   const validation = await validateBookingRequest(userId, roomId, date, startTime, endTime);
   if (!validation.valid) throw new BookingValidationError(validation.error!);
@@ -557,7 +591,30 @@ export async function createBooking(
   const { totalAvailable } = await CreditTransactionService.getCreditBalanceTotals(userId, {
     forBookingMonth: date,
   });
-  if (totalAvailable < creditAmountNeeded) {
+  
+  // Total available resources: existing credits + payment already made (if any)
+  const totalAvailableResources = totalAvailable + (paymentAmountMade ?? 0);
+  
+  if (totalAvailableResources < creditAmountNeeded) {
+    // Only request payment if paymentAmountMade is not provided (initial booking attempt)
+    // If paymentAmountMade is provided, we're in the webhook flow and should have enough
+    if (paymentAmountMade != null) {
+
+      // Use Error instead of BookingValidationError to indicate it's a system error, not a client validation error.
+      const errorMessage = `Insufficient resources after payment. Need £${creditAmountNeeded.toFixed(
+        2
+      )} but have £${totalAvailable.toFixed(2)} credits and £${paymentAmountMade.toFixed(2)} payment.`;
+      logger.error('Insufficient resources after payment in webhook flow', {
+        userId,
+        roomId,
+        date,
+        creditAmountNeeded,
+        totalAvailable,
+        paymentAmountMade,
+      });
+      throw new Error(errorMessage);
+    }
+    
     const amountToPayGBP = creditAmountNeeded - totalAvailable;
     const amountToPayPence = Math.round(amountToPayGBP * 100);
     if (amountToPayPence <= 0) {
@@ -569,6 +626,13 @@ export async function createBooking(
         )} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
       );
     } else {
+      // Check if user has active subscription before allowing pay-the-difference
+      if (!hasActiveSubscription(membership)) {
+        throw new BookingValidationError(
+          'You must have an active subscription to pay the difference. Please purchase a subscription first.'
+        );
+      }
+      
       const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
         amount: amountToPayPence,
         currency: 'gbp',
@@ -621,6 +685,12 @@ export async function createBooking(
         ? 0
         : Math.round((totalPriceCents * (durationHours - voucherHoursToUse)) / durationHours);
     const creditAmountNeeded = creditAmountCents / 100;
+    
+    // When paymentAmountMade is provided, calculate how much credit to actually use
+    // Credit to use = creditAmountNeeded - paymentAmountMade (but not less than 0)
+    const creditToUse = paymentAmountMade != null
+      ? Math.max(0, creditAmountNeeded - paymentAmountMade)
+      : creditAmountNeeded;
 
     const [created] = await tx
       .insert(bookings)
@@ -633,7 +703,7 @@ export async function createBooking(
         endTime: endTimeDb,
         pricePerHour: pricePerHour.toFixed(2),
         totalPrice: totalPrice.toFixed(2),
-        creditUsed: creditAmountNeeded.toFixed(2),
+        creditUsed: creditToUse.toFixed(2), // Store actual credits consumed (not including payment amount)
         voucherHoursUsed: voucherHoursToUse.toFixed(2),
         status: 'confirmed',
         bookingType,
@@ -660,13 +730,14 @@ export async function createBooking(
       }
     }
 
-    if (creditAmountNeeded > 0) {
-      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditAmountNeeded, {
+    // Only use credits for the amount not covered by payment
+    if (creditToUse > 0) {
+      await CreditTransactionService.useCreditsWithinTransaction(tx, userId, creditToUse, {
         bookingDate: date,
       });
     }
 
-    return { id: created.id, creditUsed: creditAmountNeeded };
+    return { id: created.id, creditUsed: creditToUse };
   });
 
   // Send confirmation email (fire-and-forget; do not fail the request if email fails)
@@ -1094,6 +1165,14 @@ export async function updateBooking(
               .where(eq(memberships.userId, userId))
               .limit(1);
             if (!membership) throw new BookingValidationError('No membership');
+            
+            // Check if user has active subscription before allowing pay-the-difference
+            if (!hasActiveSubscription(membership)) {
+              throw new BookingValidationError(
+                'You must have an active subscription to pay the difference. Please purchase a subscription first.'
+              );
+            }
+            
             // Compute everything needed for payment while holding the DB locks,
             // then signal to the outer scope to perform the Stripe call.
             throw new BookingUpdatePaymentComputationError({

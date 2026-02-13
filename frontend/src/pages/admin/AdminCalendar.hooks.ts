@@ -208,15 +208,13 @@ export function useBookingHandlers(params: UseBookingHandlersParams) {
       }
       const res = await practitionerApi.createBooking(payload);
       const data = res.data;
-      if (data.success && !data.paymentRequired && data.booking) {
+      if (data.success && 'booking' in data) {
         setCreateSuccess('Booking created.');
         fetchCalendar();
-      } else if (data.success && data.paymentRequired) {
-        setCreateError(
-          'Payment required for this booking type when creating on behalf of a practitioner. Use free/internal with target practitioner for no charge.'
-        );
+      } else if (!data.success && 'error' in data) {
+        setCreateError(data.error ?? 'Failed to create booking');
       } else {
-        setCreateError((data as { error?: string }).error ?? 'Failed to create booking');
+        setCreateError('Failed to create booking');
       }
     } catch (err: unknown) {
       const msg =
