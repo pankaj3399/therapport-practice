@@ -234,7 +234,8 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               break;
             }
             // For pay-the-difference, payment directly covers the shortfall
-            // Grant credits for the payment amount so it appears in transaction history
+            // Convert amountReceived (pence) to GBP for passing to createBooking
+            // Note: Credits are NOT granted for new bookings - payment appears in transaction history via booking record
             const paymentAmountGBP = amountReceived / 100;
             const result = await BookingService.createBooking(
               userId,

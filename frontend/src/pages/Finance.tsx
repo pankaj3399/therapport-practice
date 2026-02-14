@@ -30,7 +30,7 @@ interface TransactionHistoryEntry {
   date: string;
   description: string;
   amount: number;
-  type: 'credit_grant' | 'credit_used' | 'booking' | 'voucher_allocation';
+  type: 'credit_grant' | 'booking' | 'voucher_allocation' | 'stripe_payment';
 }
 
 export const Finance: React.FC = () => {
@@ -137,9 +137,9 @@ export const Finance: React.FC = () => {
 
   // Format amount with proper sign
   const formatTransactionAmount = (amount: number): string => {
-    if (amount === 0) return '0';
-    if (amount > 0) return `+${amount.toFixed(2)}`;
-    return amount.toFixed(2);
+    if (amount === 0) return '£0.00';
+    if (amount > 0) return `+£${amount.toFixed(2)}`;
+    return `-£${Math.abs(amount).toFixed(2)}`;
   };
 
   // Format month label from selectedMonth (e.g., "February 2026")
@@ -223,7 +223,6 @@ export const Finance: React.FC = () => {
                                       : 'text-slate-500 dark:text-slate-400'
                                   }`}
                                 >
-                                  {transaction.amount !== 0 && '£'}
                                   {formatTransactionAmount(transaction.amount)}
                                 </TableCell>
                               </TableRow>

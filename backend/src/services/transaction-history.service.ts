@@ -1,6 +1,6 @@
 import { db } from '../config/database';
-import { creditTransactions, bookings, freeBookingVouchers, rooms, locations } from '../db/schema';
-import { eq, and, gte, lte, asc, sql } from 'drizzle-orm';
+import { creditTransactions, bookings, freeBookingVouchers, rooms } from '../db/schema';
+import { eq, and, gte, lte, asc } from 'drizzle-orm';
 import { getMonthRange, formatTimeForDisplay } from '../utils/date.util';
 
 export interface TransactionHistoryEntry {
@@ -92,7 +92,9 @@ export async function getTransactionHistory(
     const voucherHoursUsed = parseFloat(String(booking.voucherHoursUsed ?? 0));
     
     // Format booking date as DD.MM.YYYY for display in description
-    const [bookingYear, bookingMonth, bookingDay] = booking.bookingDate.split('-');
+    // Use String() for safety - Drizzle date() may return string or Date object depending on driver
+    const bookingDateStr = String(booking.bookingDate);
+    const [bookingYear, bookingMonth, bookingDay] = bookingDateStr.split('-');
     const formattedBookingDate = `${bookingDay}.${bookingMonth}.${bookingYear}`;
     
     // Show the credit used as negative (what was deducted from credits)
@@ -145,7 +147,9 @@ export async function getTransactionHistory(
     const hours = parseFloat(voucher.hoursAllocated.toString());
     
     // Format expiry date as DD.MM.YYYY
-    const [year, expiryMonth, day] = voucher.expiryDate.split('-');
+    // Use String() for safety - Drizzle date() may return string or Date object depending on driver
+    const expiryDateStr = String(voucher.expiryDate);
+    const [year, expiryMonth, day] = expiryDateStr.split('-');
     const formattedExpiryDate = `${day}.${expiryMonth}.${year}`;
     
     transactions.push({

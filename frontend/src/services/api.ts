@@ -416,7 +416,7 @@ export const practitionerApi = {
         date: string;
         description: string;
         amount: number;
-        type: 'credit_grant' | 'credit_used' | 'booking' | 'voucher_allocation';
+        type: 'credit_grant' | 'booking' | 'voucher_allocation' | 'stripe_payment';
       }>;
     }>('/practitioner/transaction-history', { params, signal });
   },
