@@ -366,8 +366,7 @@ function mapRowToDayCalendarBooking(
     firstName?: string;
     lastName?: string;
     userId?: string;
-  },
-  includeBookerNames: boolean
+  }
 ): DayCalendarBooking {
   const booking: DayCalendarBooking = {
     roomId: row.roomId,
@@ -376,7 +375,7 @@ function mapRowToDayCalendarBooking(
   };
   if (row.id) booking.id = row.id;
   if (row.userId) booking.userId = row.userId;
-  if (includeBookerNames && row.firstName !== undefined && row.lastName !== undefined) {
+  if (row.firstName !== undefined && row.lastName !== undefined) {
     booking.bookerName =
       [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || undefined;
   }
@@ -385,12 +384,11 @@ function mapRowToDayCalendarBooking(
 
 /**
  * Get day calendar: rooms for location and all confirmed bookings for that date.
- * When includeBookerNames is true (admin), each booking includes bookerName.
+ * Each booking includes bookerName and userId so all users can see who has which booking.
  */
 export async function getDayCalendar(
   location: LocationName,
-  date: string,
-  includeBookerNames: boolean
+  date: string
 ): Promise<{ rooms: DayCalendarRoom[]; bookings: DayCalendarBooking[] }> {
   const roomList = await getRooms(location);
   const rooms = roomList.map((r) => ({ id: r.id, name: r.name }));
@@ -419,7 +417,7 @@ export async function getDayCalendar(
     .innerJoin(users, eq(bookings.userId, users.id))
     .where(whereClause)
     .orderBy(asc(bookings.startTime));
-  return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r, true)) };
+  return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r)) };
 }
 
 /**
@@ -626,8 +624,8 @@ export async function createBooking(
         );
       }
       
-      // Get or create Stripe customer ID for payment
-      let customerId = membership.stripeCustomerId ?? undefined;
+      // Get Stripe customer ID for payment (if available)
+      const customerId = membership.stripeCustomerId ?? undefined;
       
       const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
         amount: amountToPayPence,
@@ -1162,8 +1160,9 @@ export async function updateBooking(
               .limit(1);
             if (!membership) throw new BookingValidationError('No membership');
             
-            // Check if user has active subscription before allowing pay-the-difference
-            if (!hasActiveSubscription(membership)) {
+            // For ad_hoc members, require active subscription to pay the difference
+            // For permanent members, allow pay-as-you-go even without active subscription
+            if (membership.type === 'ad_hoc' && !hasActiveSubscription(membership)) {
               throw new BookingValidationError(
                 'You must have an active subscription to pay the difference. Please purchase a subscription first.'
               );

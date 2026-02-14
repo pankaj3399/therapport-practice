@@ -144,7 +144,7 @@ export class BookingController {
         return;
       }
       // Always include booker names so all users can see who has which booking
-      const result = await BookingService.getDayCalendar(location, date, true);
+      const result = await BookingService.getDayCalendar(location, date);
       res.status(200).json({ success: true, rooms: result.rooms, bookings: result.bookings });
     } catch (error) {
       const status = error instanceof BookingServiceError ? error.statusCode : DEFAULT_STATUS;
