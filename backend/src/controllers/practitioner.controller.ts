@@ -8,6 +8,7 @@ import { CreditService } from '../services/credit.service';
 import { FileService } from '../services/file.service';
 import { ReminderService, type DocumentReminderMetadata } from '../services/reminder.service';
 import { emailService } from '../services/email.service';
+import { getTransactionHistory } from '../services/transaction-history.service';
 import { logger } from '../utils/logger.util';
 import { calculateExpiryStatus } from '../utils/date.util';
 import { z, ZodError } from 'zod';
@@ -688,11 +689,19 @@ export class PractitionerController {
       // Normalize month: validate format or default to current month
       let normalizedMonth: string;
       if (monthParam) {
-        // Validate month format (YYYY-MM)
+        // Validate month format (YYYY-MM) and month range (01-12)
         if (!/^\d{4}-\d{2}$/.test(monthParam)) {
           return res.status(400).json({
             success: false,
             error: 'Invalid month format. Expected YYYY-MM',
+          });
+        }
+        const [, monthStr] = monthParam.split('-');
+        const monthNum = parseInt(monthStr, 10);
+        if (monthNum < 1 || monthNum > 12) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid month. Month must be between 01 and 12',
           });
         }
         normalizedMonth = monthParam;
@@ -704,7 +713,6 @@ export class PractitionerController {
         normalizedMonth = `${year}-${String(monthNum).padStart(2, '0')}`;
       }
 
-      const { getTransactionHistory } = await import('../services/transaction-history.service');
       const transactions = await getTransactionHistory(userId, normalizedMonth);
 
       res.status(200).json({

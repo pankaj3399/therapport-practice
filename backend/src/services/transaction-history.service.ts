@@ -22,6 +22,11 @@ export async function getTransactionHistory(
   const { firstDay, lastDay } = getMonthRange(`${month}-01`);
   const transactions: TransactionHistoryEntry[] = [];
 
+  // Convert firstDay/lastDay strings to Date objects for timestamp comparison
+  // Filter by createdAt to show transactions that happened in the selected month
+  const firstDayDate = new Date(firstDay + 'T00:00:00Z');
+  const lastDayDate = new Date(lastDay + 'T23:59:59.999Z');
+
   // Get credit transactions (grants) for the month
   const creditGrants = await db
     .select()
@@ -29,12 +34,12 @@ export async function getTransactionHistory(
     .where(
       and(
         eq(creditTransactions.userId, userId),
-        gte(creditTransactions.grantDate, firstDay),
-        lte(creditTransactions.grantDate, lastDay),
+        gte(creditTransactions.createdAt, firstDayDate),
+        lte(creditTransactions.createdAt, lastDayDate),
         eq(creditTransactions.revoked, false)
       )
     )
-    .orderBy(asc(creditTransactions.grantDate), asc(creditTransactions.createdAt));
+    .orderBy(asc(creditTransactions.createdAt));
 
   for (const grant of creditGrants) {
     const amount = parseFloat(grant.amount.toString());
@@ -52,7 +57,7 @@ export async function getTransactionHistory(
     }
 
     transactions.push({
-      date: grant.grantDate,
+      date: grant.createdAt.toISOString().split('T')[0], // Use creation date (when transaction happened)
       description,
       amount,
       type: 'credit_grant',
@@ -61,6 +66,7 @@ export async function getTransactionHistory(
   }
 
   // Get bookings for the month
+  // Filter by createdAt to show transactions that happened in the selected month
   const bookingRows = await db
     .select({
       booking: bookings,
@@ -73,34 +79,57 @@ export async function getTransactionHistory(
     .where(
       and(
         eq(bookings.userId, userId),
-        gte(bookings.bookingDate, firstDay),
-        lte(bookings.bookingDate, lastDay),
+        gte(bookings.createdAt, firstDayDate),
+        lte(bookings.createdAt, lastDayDate),
         eq(bookings.status, 'confirmed')
       )
     )
-    .orderBy(asc(bookings.bookingDate), asc(bookings.createdAt));
+    .orderBy(asc(bookings.createdAt));
 
   for (const { booking, room, location } of bookingRows) {
     const startTime = formatTimeForDisplay(booking.startTime);
     const endTime = formatTimeForDisplay(booking.endTime);
-    const creditUsed = parseFloat(booking.creditUsed.toString());
+    const creditUsed = parseFloat(String(booking.creditUsed ?? 0));
+    const totalPrice = parseFloat(booking.totalPrice.toString());
+    const voucherHoursUsed = parseFloat(String(booking.voucherHoursUsed ?? 0));
+    
+    // Format booking date as DD.MM.YYYY for display in description
+    const [bookingYear, bookingMonth, bookingDay] = booking.bookingDate.split('-');
+    const formattedBookingDate = `${bookingDay}.${bookingMonth}.${bookingYear}`;
     
     // Show the credit used as negative (what was deducted from credits)
-    // The pay_difference Stripe transaction will show separately as positive
+    // Use createdAt date (when booking was created) and include booking date in description
     transactions.push({
-      date: booking.bookingDate,
-      description: `Booking ${room.name}, ${startTime} to ${endTime}`,
+      date: booking.createdAt.toISOString().split('T')[0], // Use creation date (when transaction happened)
+      description: `Booking ${room.name}, ${formattedBookingDate} ${startTime} to ${endTime}`,
       amount: -creditUsed,
       type: 'booking',
       createdAt: booking.createdAt,
     });
+    
+    // Calculate if there was a pay-the-difference payment
+    // Payment amount = totalPrice - creditUsed - voucherValue
+    // Voucher value = voucherHoursUsed * pricePerHour (using stored pricePerHour for accuracy)
+    const pricePerHour = parseFloat(booking.pricePerHour.toString());
+    const voucherValue = voucherHoursUsed > 0 && pricePerHour > 0
+      ? voucherHoursUsed * pricePerHour
+      : 0;
+    
+    // Only show Stripe transaction if payment amount is significant (more than 0.01 to account for rounding)
+    // This means the user actually paid a difference amount, not just rounding differences
+    const paymentAmount = totalPrice - creditUsed - voucherValue;
+    if (paymentAmount > 0.01) {
+      transactions.push({
+        date: booking.createdAt.toISOString().split('T')[0], // Use creation date (when transaction happened)
+        description: 'Stripe transaction',
+        amount: paymentAmount,
+        type: 'credit_grant', // Use credit_grant type so it shows as positive
+        createdAt: booking.createdAt, // Use booking createdAt for chronological ordering
+      });
+    }
   }
 
   // Get voucher allocations for the month
-  // Convert firstDay/lastDay strings to Date objects for timestamp comparison
-  const firstDayDate = new Date(firstDay + 'T00:00:00Z');
-  const lastDayDate = new Date(lastDay + 'T23:59:59.999Z');
-  
   const vouchers = await db
     .select()
     .from(freeBookingVouchers)
@@ -117,8 +146,8 @@ export async function getTransactionHistory(
     const hours = parseFloat(voucher.hoursAllocated.toString());
     
     // Format expiry date as DD.MM.YYYY
-    const [year, month, day] = voucher.expiryDate.split('-');
-    const formattedExpiryDate = `${day}.${month}.${year}`;
+    const [year, expiryMonth, day] = voucher.expiryDate.split('-');
+    const formattedExpiryDate = `${day}.${expiryMonth}.${year}`;
     
     transactions.push({
       date: voucher.createdAt.toISOString().split('T')[0],
@@ -143,7 +172,5 @@ export async function getTransactionHistory(
 
   // Remove createdAt from final result (it was only used for sorting)
   return transactions.map(({ createdAt, ...rest }) => rest);
-
-  return transactions;
 }
 

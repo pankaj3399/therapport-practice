@@ -45,8 +45,8 @@ export const Finance: React.FC = () => {
   // Get month from URL params or default to current month
   const getCurrentMonth = () => {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth() + 1;
     return `${year}-${String(month).padStart(2, '0')}`;
   };
   
@@ -233,7 +233,7 @@ export const Finance: React.FC = () => {
                                     transaction.amount > 0
                                       ? 'text-green-600 dark:text-green-400'
                                       : transaction.amount < 0
-                                      ? 'text-slate-900 dark:text-white'
+                                      ? 'text-red-600 dark:text-red-400'
                                       : 'text-slate-500 dark:text-slate-400'
                                   }`}
                                 >

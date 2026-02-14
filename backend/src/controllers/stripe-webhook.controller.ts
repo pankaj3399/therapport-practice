@@ -253,33 +253,16 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
                 date,
               });
             } else if ('id' in result) {
-              // Grant credits for the payment amount to show in transaction history
-              // Use booking date as grantDate so it appears in the same month as the booking
-              const sourceId = paymentIntentIdToSourceId(paymentIntent.id);
-              const alreadyGranted = await CreditTransactionService.hasCreditForSourceId(
-                userId,
-                'pay_difference',
-                sourceId
-              );
-              if (!alreadyGranted) {
-                await grantPayDifferenceCredits(
-                  userId,
-                  amountReceived,
-                  'Pay the difference for booking',
-                  sourceId,
-                  date // Pass booking date as grantDate
-                );
-                logger.info('Pay-the-difference credits granted', {
-                  eventId: event.id,
-                  userId,
-                  bookingId: result.id,
-                  paymentIntentId: paymentIntent.id,
-                });
-              }
+              // For new bookings with pay-the-difference, the payment directly covers the shortfall
+              // We do NOT grant credits because the payment is not a credit grant - it's a direct payment
+              // The payment will still appear in transaction history via the booking record
+              // (Note: For booking updates, we DO grant credits because the booking already exists)
               logger.info('Pay-the-difference booking created', {
                 eventId: event.id,
                 userId,
                 bookingId: result.id,
+                paymentAmountGBP: paymentAmountGBP,
+                paymentIntentId: paymentIntent.id,
               });
             }
           }
