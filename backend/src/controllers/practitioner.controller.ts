@@ -683,32 +683,29 @@ export class PractitionerController {
       }
 
       const userId = req.user.id;
-      const month = typeof req.query.month === 'string' ? req.query.month : undefined;
+      const monthParam = typeof req.query.month === 'string' ? req.query.month : undefined;
 
-      // Default to current month if not provided
-      if (!month) {
+      // Normalize month: validate format or default to current month
+      let normalizedMonth: string;
+      if (monthParam) {
+        // Validate month format (YYYY-MM)
+        if (!/^\d{4}-\d{2}$/.test(monthParam)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid month format. Expected YYYY-MM',
+          });
+        }
+        normalizedMonth = monthParam;
+      } else {
+        // Default to current month if not provided
         const now = new Date();
         const year = now.getUTCFullYear();
         const monthNum = now.getUTCMonth() + 1;
-        const monthStr = `${year}-${String(monthNum).padStart(2, '0')}`;
-        const { getTransactionHistory } = await import('../services/transaction-history.service');
-        const transactions = await getTransactionHistory(userId, monthStr);
-        return res.status(200).json({
-          success: true,
-          data: transactions,
-        });
-      }
-
-      // Validate month format (YYYY-MM)
-      if (!/^\d{4}-\d{2}$/.test(month)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid month format. Expected YYYY-MM',
-        });
+        normalizedMonth = `${year}-${String(monthNum).padStart(2, '0')}`;
       }
 
       const { getTransactionHistory } = await import('../services/transaction-history.service');
-      const transactions = await getTransactionHistory(userId, month);
+      const transactions = await getTransactionHistory(userId, normalizedMonth);
 
       res.status(200).json({
         success: true,

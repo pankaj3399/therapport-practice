@@ -583,7 +583,9 @@ export const Bookings: React.FC = () => {
                       : formatMonthKeyToLabel(new Date().toISOString().slice(0, 7))}
                   </span>
                   <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">
-                    £0.00
+                    £{credit?.currentMonth?.remainingCredit != null 
+                      ? credit.currentMonth.remainingCredit.toFixed(2) 
+                      : '0.00'}
                   </span>
                 </div>
                 <Button

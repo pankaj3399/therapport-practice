@@ -109,18 +109,28 @@ export const Finance: React.FC = () => {
     return () => c.abort();
   }, [fetchInvoices]);
 
+  // Fetch transaction history when month changes
   useEffect(() => {
     const c = new AbortController();
     fetchTransactionHistory(selectedMonth, c.signal);
-    // Update URL params when month changes
+    return () => c.abort();
+  }, [selectedMonth, fetchTransactionHistory]);
+
+  // Update URL params when month changes
+  useEffect(() => {
     if (selectedMonth) {
       setSearchParams({ month: selectedMonth }, { replace: true });
     }
-    return () => c.abort();
-  }, [selectedMonth, fetchTransactionHistory, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonth]); // setSearchParams is stable in react-router-dom v6
 
   // Format date as DD.MM.YYYY
   const formatTransactionDate = (dateStr: string): string => {
+    // Validate date format (YYYY-MM-DD) before splitting
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      // Fallback: return the original string if it's not in the expected format
+      return dateStr;
+    }
     const [year, month, day] = dateStr.split('-');
     return `${day}.${month}.${year}`;
   };
@@ -169,8 +179,11 @@ export const Finance: React.FC = () => {
                 Transaction History
               </CardTitle>
               <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-600 dark:text-slate-400">Month:</label>
+                <label htmlFor="transaction-month-selector" className="text-sm text-slate-600 dark:text-slate-400">
+                  Month:
+                </label>
                 <input
+                  id="transaction-month-selector"
                   type="month"
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(e.target.value)}
@@ -208,7 +221,9 @@ export const Finance: React.FC = () => {
                           </TableHeader>
                           <TableBody>
                             {transactions.map((transaction, idx) => (
-                              <TableRow key={`${transaction.date}-${idx}`}>
+                              <TableRow
+                                key={`${transaction.date}-${transaction.description}-${transaction.amount}-${idx}`}
+                              >
                                 <TableCell className="font-medium">
                                   {formatTransactionDate(transaction.date)}
                                 </TableCell>

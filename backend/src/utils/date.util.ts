@@ -92,3 +92,26 @@ export function formatTimeForEmail(t: string | Date): string {
   const d = t as Date;
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
+
+/**
+ * Format time from DB (string or Date) to "H:MMam/pm" format for display.
+ * Examples: "3pm", "3:30pm", "9am", "12:15pm"
+ */
+export function formatTimeForDisplay(t: string | Date): string {
+  let hours: number;
+  let minutes: number;
+  
+  if (typeof t === 'string') {
+    const parts = t.trim().split(':');
+    hours = parseInt(parts[0] || '0', 10);
+    minutes = parseInt(parts[1] || '0', 10);
+  } else {
+    hours = t.getUTCHours();
+    minutes = t.getUTCMinutes();
+  }
+  
+  const ampm = hours >= 12 ? 'pm' : 'am';
+  const displayHour = hours % 12 || 12;
+  const displayMinutes = minutes > 0 ? `:${String(minutes).padStart(2, '0')}` : '';
+  return `${displayHour}${displayMinutes}${ampm}`;
+}

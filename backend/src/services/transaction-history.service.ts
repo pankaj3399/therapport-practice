@@ -1,35 +1,14 @@
 import { db } from '../config/database';
 import { creditTransactions, bookings, freeBookingVouchers, rooms, locations } from '../db/schema';
 import { eq, and, gte, lte, asc, sql } from 'drizzle-orm';
-import { getMonthRange } from '../utils/date.util';
-
-/**
- * Format time from DB (string or Date) to "H:MMam/pm" format for display.
- */
-function formatTimeForDisplay(t: string | Date): string {
-  let hours: number;
-  let minutes: number;
-  
-  if (typeof t === 'string') {
-    const parts = t.trim().split(':');
-    hours = parseInt(parts[0] || '0', 10);
-    minutes = parseInt(parts[1] || '0', 10);
-  } else {
-    hours = t.getUTCHours();
-    minutes = t.getUTCMinutes();
-  }
-  
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  const displayHour = hours % 12 || 12;
-  const displayMinutes = minutes > 0 ? `:${String(minutes).padStart(2, '0')}` : '';
-  return `${displayHour}${displayMinutes}${ampm}`;
-}
+import { getMonthRange, formatTimeForDisplay } from '../utils/date.util';
 
 export interface TransactionHistoryEntry {
   date: string; // YYYY-MM-DD
   description: string;
   amount: number; // positive for credits, negative for spending, 0 for vouchers
   type: 'credit_grant' | 'credit_used' | 'booking' | 'voucher_allocation';
+  createdAt?: Date; // Internal field for sorting (not exposed to frontend)
 }
 
 /**
@@ -77,6 +56,7 @@ export async function getTransactionHistory(
       description,
       amount,
       type: 'credit_grant',
+      createdAt: grant.createdAt,
     });
   }
 
@@ -98,7 +78,7 @@ export async function getTransactionHistory(
         eq(bookings.status, 'confirmed')
       )
     )
-    .orderBy(asc(bookings.bookingDate), asc(bookings.startTime));
+    .orderBy(asc(bookings.bookingDate), asc(bookings.createdAt));
 
   for (const { booking, room, location } of bookingRows) {
     const startTime = formatTimeForDisplay(booking.startTime);
@@ -112,41 +92,57 @@ export async function getTransactionHistory(
       description: `Booking ${room.name}, ${startTime} to ${endTime}`,
       amount: -creditUsed,
       type: 'booking',
+      createdAt: booking.createdAt,
     });
   }
 
   // Get voucher allocations for the month
-  const allVouchers = await db
+  // Convert firstDay/lastDay strings to Date objects for timestamp comparison
+  const firstDayDate = new Date(firstDay + 'T00:00:00Z');
+  const lastDayDate = new Date(lastDay + 'T23:59:59.999Z');
+  
+  const vouchers = await db
     .select()
     .from(freeBookingVouchers)
-    .where(eq(freeBookingVouchers.userId, userId))
+    .where(
+      and(
+        eq(freeBookingVouchers.userId, userId),
+        gte(freeBookingVouchers.createdAt, firstDayDate),
+        lte(freeBookingVouchers.createdAt, lastDayDate)
+      )
+    )
     .orderBy(asc(freeBookingVouchers.createdAt));
-
-  // Filter vouchers by month (createdAt is a timestamp)
-  const vouchers = allVouchers.filter((voucher) => {
-    const createdAtDate = voucher.createdAt.toISOString().split('T')[0];
-    return createdAtDate >= firstDay && createdAtDate <= lastDay;
-  });
 
   for (const voucher of vouchers) {
     const hours = parseFloat(voucher.hoursAllocated.toString());
+    
+    // Format expiry date as DD.MM.YYYY
+    const [year, month, day] = voucher.expiryDate.split('-');
+    const formattedExpiryDate = `${day}.${month}.${year}`;
+    
     transactions.push({
       date: voucher.createdAt.toISOString().split('T')[0],
-      description: `${hours} hours free booking expiring ${voucher.expiryDate} allocated`,
+      description: `${hours} hours free booking expiring ${formattedExpiryDate} allocated`,
       amount: 0,
       type: 'voucher_allocation',
+      createdAt: voucher.createdAt,
     });
   }
 
-  // Sort all transactions by date, then by creation time
+  // Sort all transactions by date, then by creation time (chronological order)
   transactions.sort((a, b) => {
     const dateCompare = a.date.localeCompare(b.date);
     if (dateCompare !== 0) return dateCompare;
-    // For same date, prefer grants before bookings
-    if (a.type === 'credit_grant' && b.type !== 'credit_grant') return -1;
-    if (a.type !== 'credit_grant' && b.type === 'credit_grant') return 1;
+    // For same date, sort by creation timestamp (chronological order)
+    if (a.createdAt && b.createdAt) {
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    }
+    // Fallback: if createdAt is missing, maintain current order
     return 0;
   });
+
+  // Remove createdAt from final result (it was only used for sorting)
+  return transactions.map(({ createdAt, ...rest }) => rest);
 
   return transactions;
 }

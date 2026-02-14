@@ -594,7 +594,7 @@ export const Dashboard: React.FC = () => {
               ) : dashboardData?.credit.byMonth && dashboardData.credit.byMonth.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   {dashboardData.credit.byMonth.map((month: { month: string; remainingCredit: number }) => {
-                    const monthLabel = formatMonthYear(month.month + '-01');
+                    const monthLabel = formatMonthYear(month.month);
                     return (
                       <div key={month.month} className="flex items-center justify-between">
                         <span className="text-slate-900 dark:text-white text-lg font-bold">
@@ -624,7 +624,9 @@ export const Dashboard: React.FC = () => {
                         : formatMonthYear(new Date().toISOString().slice(0, 7) + '-01')}
                     </span>
                     <span className="text-slate-900 dark:text-white text-lg font-bold">
-                      £0.00
+                      £{dashboardData?.credit.currentMonth?.remainingCredit != null 
+                        ? dashboardData.credit.currentMonth.remainingCredit.toFixed(2) 
+                        : '0.00'}
                     </span>
                   </div>
                   <Button
