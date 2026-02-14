@@ -39,8 +39,8 @@ async function grantPayDifferenceCredits(
   const m = d.getUTCMonth();
   const lastDay = new Date(Date.UTC(y, m + 1, 0));
   const expiryDate = lastDay.toISOString().split('T')[0];
-  // Use booking date as grantDate if provided, otherwise use today
-  const grantDate = bookingDate || new Date().toISOString().split('T')[0];
+  // Use booking date as grantDate if provided, otherwise use today (reuse d to avoid redundant Date creation)
+  const grantDate = bookingDate || d.toISOString().split('T')[0];
   return CreditTransactionService.grantCreditsWithDate(
     userId,
     amountGBP,

@@ -7,7 +7,7 @@ export interface TransactionHistoryEntry {
   date: string; // YYYY-MM-DD
   description: string;
   amount: number; // positive for credits, negative for spending, 0 for vouchers
-  type: 'credit_grant' | 'credit_used' | 'booking' | 'voucher_allocation';
+  type: 'credit_grant' | 'booking' | 'voucher_allocation' | 'stripe_payment';
   createdAt?: Date; // Internal field for sorting (not exposed to frontend)
 }
 
@@ -71,11 +71,9 @@ export async function getTransactionHistory(
     .select({
       booking: bookings,
       room: rooms,
-      location: locations,
     })
     .from(bookings)
     .innerJoin(rooms, eq(bookings.roomId, rooms.id))
-    .innerJoin(locations, eq(rooms.locationId, locations.id))
     .where(
       and(
         eq(bookings.userId, userId),
@@ -86,7 +84,7 @@ export async function getTransactionHistory(
     )
     .orderBy(asc(bookings.createdAt));
 
-  for (const { booking, room, location } of bookingRows) {
+  for (const { booking, room } of bookingRows) {
     const startTime = formatTimeForDisplay(booking.startTime);
     const endTime = formatTimeForDisplay(booking.endTime);
     const creditUsed = parseFloat(String(booking.creditUsed ?? 0));
@@ -117,13 +115,14 @@ export async function getTransactionHistory(
     
     // Only show Stripe transaction if payment amount is significant (more than 0.01 to account for rounding)
     // This means the user actually paid a difference amount, not just rounding differences
-    const paymentAmount = totalPrice - creditUsed - voucherValue;
+    // Round to 2 decimal places to avoid floating-point arithmetic errors
+    const paymentAmount = Math.round((totalPrice - creditUsed - voucherValue) * 100) / 100;
     if (paymentAmount > 0.01) {
       transactions.push({
         date: booking.createdAt.toISOString().split('T')[0], // Use creation date (when transaction happened)
         description: 'Stripe transaction',
         amount: paymentAmount,
-        type: 'credit_grant', // Use credit_grant type so it shows as positive
+        type: 'stripe_payment', // Use stripe_payment type to accurately represent Stripe payments
         createdAt: booking.createdAt, // Use booking createdAt for chronological ordering
       });
     }

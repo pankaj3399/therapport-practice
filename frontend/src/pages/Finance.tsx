@@ -142,20 +142,9 @@ export const Finance: React.FC = () => {
     return amount.toFixed(2);
   };
 
-  // Group transactions by month
-  const groupedTransactions = transactionHistory.reduce((acc, transaction) => {
-    const [year, month] = transaction.date.split('-');
-    const monthKey = `${year}-${month}`;
-    if (!acc[monthKey]) {
-      acc[monthKey] = [];
-    }
-    acc[monthKey].push(transaction);
-    return acc;
-  }, {} as Record<string, TransactionHistoryEntry[]>);
-
-  // Format month label (e.g., "February 2026")
-  const formatMonthLabel = (monthKey: string): string => {
-    const [year, month] = monthKey.split('-');
+  // Format month label from selectedMonth (e.g., "February 2026")
+  const formatMonthLabel = (): string => {
+    const [year, month] = selectedMonth.split('-');
     const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1);
     return date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   };
@@ -203,24 +192,21 @@ export const Finance: React.FC = () => {
               <p className="text-sm text-slate-500">No transactions for this month.</p>
             ) : (
               <div className="space-y-6">
-                {Object.entries(groupedTransactions)
-                  .sort(([a], [b]) => b.localeCompare(a))
-                  .map(([monthKey, transactions]) => (
-                    <div key={monthKey}>
-                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">
-                        {formatMonthLabel(monthKey)}
-                      </h3>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Transaction details</TableHead>
-                              <TableHead className="text-right">Amount in GBP</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {transactions.map((transaction, idx) => (
+                <div>
+                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">
+                    {formatMonthLabel()}
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Transaction details</TableHead>
+                          <TableHead className="text-right">Amount in GBP</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {transactionHistory.map((transaction, idx) => (
                               <TableRow
                                 key={`${transaction.date}-${transaction.description}-${transaction.amount}-${idx}`}
                               >
@@ -241,12 +227,11 @@ export const Finance: React.FC = () => {
                                   {formatTransactionAmount(transaction.amount)}
                                 </TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-                  ))}
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>
