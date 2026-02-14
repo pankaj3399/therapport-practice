@@ -354,6 +354,7 @@ export interface DayCalendarBooking {
   startTime: string;
   endTime: string;
   bookerName?: string;
+  userId?: string;
 }
 
 function mapRowToDayCalendarBooking(
@@ -364,6 +365,7 @@ function mapRowToDayCalendarBooking(
     endTime: string | Date;
     firstName?: string;
     lastName?: string;
+    userId?: string;
   },
   includeBookerNames: boolean
 ): DayCalendarBooking {
@@ -373,6 +375,7 @@ function mapRowToDayCalendarBooking(
     endTime: formatTimeHHMM(row.endTime),
   };
   if (row.id) booking.id = row.id;
+  if (row.userId) booking.userId = row.userId;
   if (includeBookerNames && row.firstName !== undefined && row.lastName !== undefined) {
     booking.bookerName =
       [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || undefined;
@@ -401,33 +404,22 @@ export async function getDayCalendar(
     eq(bookings.status, 'confirmed')
   );
 
-  if (includeBookerNames) {
-    const rows = await db
-      .select({
-        id: bookings.id,
-        roomId: bookings.roomId,
-        startTime: bookings.startTime,
-        endTime: bookings.endTime,
-        firstName: users.firstName,
-        lastName: users.lastName,
-      })
-      .from(bookings)
-      .innerJoin(users, eq(bookings.userId, users.id))
-      .where(whereClause)
-      .orderBy(asc(bookings.startTime));
-    return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r, true)) };
-  }
-
+  // Always include userId and booker names so all users can see who has which booking
   const rows = await db
     .select({
+      id: bookings.id,
       roomId: bookings.roomId,
       startTime: bookings.startTime,
       endTime: bookings.endTime,
+      userId: bookings.userId,
+      firstName: users.firstName,
+      lastName: users.lastName,
     })
     .from(bookings)
+    .innerJoin(users, eq(bookings.userId, users.id))
     .where(whereClause)
     .orderBy(asc(bookings.startTime));
-  return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r, false)) };
+  return { rooms, bookings: rows.map((r) => mapRowToDayCalendarBooking(r, true)) };
 }
 
 /**
@@ -440,7 +432,7 @@ export async function getAvailableSlots(
 ): Promise<Array<{ startTime: string; endTime: string; available: boolean }>> {
   const existingBookings = await getConfirmedBookingsForRoomDate(roomId, date);
   const slots: Array<{ startTime: string; endTime: string; available: boolean }> = [];
-  for (let halfHour = 0; halfHour < 28; halfHour++) {
+  for (let halfHour = 0; halfHour < 29; halfHour++) {
     const startHours = 8 + halfHour * 0.5;
     const endHours = startHours + 0.5;
     const hStart = Math.floor(startHours);
@@ -626,17 +618,21 @@ export async function createBooking(
         )} but have £${totalAvailable.toFixed(2)}. Payment is not configured.`
       );
     } else {
-      // Check if user has active subscription before allowing pay-the-difference
-      if (!hasActiveSubscription(membership)) {
+      // For ad_hoc members, require active subscription to pay the difference
+      // For permanent members, allow pay-as-you-go even without active subscription
+      if (membership.type === 'ad_hoc' && !hasActiveSubscription(membership)) {
         throw new BookingValidationError(
           'You must have an active subscription to pay the difference. Please purchase a subscription first.'
         );
       }
       
+      // Get or create Stripe customer ID for payment
+      let customerId = membership.stripeCustomerId ?? undefined;
+      
       const { paymentIntentId, clientSecret } = await StripePaymentService.createPaymentIntent({
         amount: amountToPayPence,
         currency: 'gbp',
-        customerId: membership.stripeCustomerId ?? undefined,
+        customerId,
         metadata: {
           type: 'pay_the_difference',
           userId,

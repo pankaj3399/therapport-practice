@@ -51,7 +51,9 @@ export async function getTransactionHistory(
     } else if (grant.sourceType === 'monthly_subscription') {
       description = 'Monthly subscription credit';
     } else if (grant.sourceType === 'pay_difference') {
-      description = 'Stripe transaction';
+      // Preserve custom description if present (e.g., "Pay the difference for room booking")
+      // Otherwise use generic fallback
+      description = grant.description || 'Stripe transaction';
     } else if (grant.sourceType === 'manual') {
       description = grant.description || 'Manual credit allocation';
     }

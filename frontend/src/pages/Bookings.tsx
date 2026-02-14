@@ -29,15 +29,15 @@ import { formatDateUK } from '@/lib/utils';
 type LocationName = 'Pimlico' | 'Kensington';
 
 const LOCATIONS: LocationName[] = ['Pimlico', 'Kensington'];
-/** 30-minute options from 08:00 to 21:30 (start times). */
+/** 30-minute options from 08:00 to 22:00 (start times). */
 const TIME_OPTIONS_30MIN = (() => {
   const options: { value: string; label: string }[] = [];
-  for (let h = 8; h <= 21; h++) {
+  for (let h = 8; h <= 22; h++) {
     options.push({
       value: `${h.toString().padStart(2, '0')}:00`,
       label: `${h.toString().padStart(2, '0')}:00`,
     });
-    if (h <= 21)
+    if (h < 22)
       options.push({
         value: `${h.toString().padStart(2, '0')}:30`,
         label: `${h.toString().padStart(2, '0')}:30`,
@@ -51,13 +51,42 @@ type CalendarBooking = {
   startTime: string;
   endTime: string;
   bookerName?: string;
+  userId?: string;
 };
 
-/** Maps "HH:mm" to row index 0–27 (08:00 = 0, 21:30 = 27). */
+/** Maps "HH:mm" to row index 0–28 (08:00 = 0, 22:00 = 28). */
 function timeStringToRowIndex(time: string): number {
   const hh = parseInt(time.slice(0, 2), 10);
   const mm = parseInt(time.slice(3, 5), 10);
   return (hh - 8) * 2 + mm / 30;
+}
+
+/** Generate a consistent color for a userId */
+function getColorForUserId(userId: string | undefined): string {
+  if (!userId) return 'bg-primary/20 dark:bg-primary/30 border-primary/40 dark:border-primary/60';
+  
+  // Generate a hash from userId to get consistent colors
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  // Use predefined color palette for better visibility
+  const colors = [
+    'bg-blue-200 dark:bg-blue-800 border-blue-400 dark:border-blue-600',
+    'bg-green-200 dark:bg-green-800 border-green-400 dark:border-green-600',
+    'bg-yellow-200 dark:bg-yellow-800 border-yellow-400 dark:border-yellow-600',
+    'bg-purple-200 dark:bg-purple-800 border-purple-400 dark:border-purple-600',
+    'bg-pink-200 dark:bg-pink-800 border-pink-400 dark:border-pink-600',
+    'bg-indigo-200 dark:bg-indigo-800 border-indigo-400 dark:border-indigo-600',
+    'bg-red-200 dark:bg-red-800 border-red-400 dark:border-red-600',
+    'bg-orange-200 dark:bg-orange-800 border-orange-400 dark:border-orange-600',
+    'bg-teal-200 dark:bg-teal-800 border-teal-400 dark:border-teal-600',
+    'bg-cyan-200 dark:bg-cyan-800 border-cyan-400 dark:border-cyan-600',
+  ];
+  
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
 }
 
 function getRowSpanForBooking(booking: { startTime: string; endTime: string }): number {
@@ -159,7 +188,7 @@ export const Bookings: React.FC = () => {
   const [credit, setCredit] = useState<CreditSummary | null>(null);
   const [calendarRooms, setCalendarRooms] = useState<Array<{ id: string; name: string }>>([]);
   const [calendarBookings, setCalendarBookings] = useState<
-    Array<{ roomId: string; startTime: string; endTime: string; bookerName?: string }>
+    Array<{ roomId: string; startTime: string; endTime: string; bookerName?: string; userId?: string }>
   >([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
@@ -653,7 +682,7 @@ export const Bookings: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {Array.from({ length: 28 }, (_, i) => {
+                    {Array.from({ length: 29 }, (_, i) => {
                       const h = 8 + Math.floor(i / 2);
                       const m = (i % 2) * 30;
                       const timeLabel = `${h.toString().padStart(2, '0')}:${m
@@ -677,12 +706,10 @@ export const Bookings: React.FC = () => {
                                 <td
                                   key={room.id}
                                   rowSpan={rowSpan}
-                                  className="border border-slate-200 dark:border-slate-700 bg-primary/20 dark:bg-primary/30 border-primary/40 p-1 align-top"
+                                  className={`border ${getColorForUserId(bookingStartingHere.userId)} p-1 align-top`}
                                 >
-                                  <span className="text-xs truncate block">
-                                    {user?.role === 'admin' && bookingStartingHere.bookerName
-                                      ? bookingStartingHere.bookerName
-                                      : ' '}
+                                  <span className="text-xs font-medium truncate block text-slate-900 dark:text-slate-100">
+                                    {bookingStartingHere.bookerName || 'Booking'}
                                   </span>
                                 </td>
                               );
