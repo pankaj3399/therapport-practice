@@ -407,6 +407,19 @@ export const practitionerApi = {
       invoices: InvoiceItem[];
     }>('/practitioner/invoices', { signal });
   },
+
+  getTransactionHistory: (month?: string, signal?: AbortSignal) => {
+    const params = month ? { month } : {};
+    return api.get<{
+      success: boolean;
+      data: Array<{
+        date: string;
+        description: string;
+        amount: number;
+        type: 'credit_grant' | 'booking' | 'voucher_allocation' | 'stripe_payment';
+      }>;
+    }>('/practitioner/transaction-history', { params, signal });
+  },
 };
 
 // Admin API methods

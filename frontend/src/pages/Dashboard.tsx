@@ -14,7 +14,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { formatDateUK } from '@/lib/utils';
 import api, { practitionerApi } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
 import { canCancelBooking } from '@/lib/booking-utils';
@@ -41,6 +40,10 @@ interface DashboardData {
       monthYear: string;
       nextMonthAllocation: number;
     } | null;
+    byMonth?: Array<{
+      month: string;
+      remainingCredit: number;
+    }>;
     membershipType: 'permanent' | 'ad_hoc' | null;
   };
   upcomingBookings: Array<{
@@ -576,45 +579,64 @@ export const Dashboard: React.FC = () => {
             </div>
             <CardContent className="p-6 flex flex-col justify-between h-full relative z-10">
               <p className="text-slate-500 dark:text-slate-400 font-medium">Credit Balance</p>
-              {dashboardData?.credit.currentMonth ? (
+              {dashboardData?.credit.membershipType === 'permanent' ? (
                 <div className="flex flex-col gap-1">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-slate-900 dark:text-white text-3xl font-black tracking-tight">
-                      £{dashboardData.credit.currentMonth.remainingCredit.toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {formatMonthYear(dashboardData.credit.currentMonth.monthYear)} • Total used: £
-                    {dashboardData.credit.currentMonth.totalUsed.toFixed(2)} / £
-                    {dashboardData.credit.currentMonth.totalGranted.toFixed(2)} granted
-                  </p>
-                  {dashboardData.credit.nextMonth && (
-                    <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                      {formatMonthYear(dashboardData.credit.nextMonth.monthYear)}: £
-                      {dashboardData.credit.nextMonth.nextMonthAllocation.toFixed(2)} available
-                    </p>
-                  )}
-                  {/* Low credit warning */}
-                  {dashboardData.credit.currentMonth.remainingCredit > 0 &&
-                    dashboardData.credit.currentMonth.totalGranted > 0 &&
-                    dashboardData.credit.currentMonth.remainingCredit /
-                      dashboardData.credit.currentMonth.totalGranted <
-                      0.2 && (
-                      <div className="mt-2 flex items-center gap-2 p-2 min-w-0 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded text-xs">
-                        <Icon name="warning" className="text-orange-500 flex-shrink-0" size={16} />
-                        <span className="text-orange-700 dark:text-orange-300 font-medium break-words">
-                          Low credit remaining
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Permanent membership</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-xs text-primary self-start"
+                    onClick={() => navigate('/finance')}
+                  >
+                    View Transaction History
+                  </Button>
+                </div>
+              ) : dashboardData?.credit.byMonth && dashboardData.credit.byMonth.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {dashboardData.credit.byMonth.map((month: { month: string; remainingCredit: number }) => {
+                    const monthLabel = formatMonthYear(month.month);
+                    return (
+                      <div key={month.month} className="flex items-center justify-between">
+                        <span className="text-slate-900 dark:text-white text-lg font-bold">
+                          {monthLabel}
+                        </span>
+                        <span className="text-slate-900 dark:text-white text-lg font-bold">
+                          £{month.remainingCredit.toFixed(2)}
                         </span>
                       </div>
-                    )}
+                    );
+                  })}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-xs text-primary self-start"
+                    onClick={() => navigate('/finance')}
+                  >
+                    View Transaction History
+                  </Button>
                 </div>
               ) : (
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {dashboardData?.credit.membershipType === 'permanent'
-                      ? 'Permanent membership'
-                      : 'No credit balance'}
-                  </p>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-900 dark:text-white text-lg font-bold">
+                      {dashboardData?.credit.currentMonth?.monthYear 
+                        ? formatMonthYear(dashboardData.credit.currentMonth.monthYear)
+                        : formatMonthYear(new Date().toISOString().slice(0, 7) + '-01')}
+                    </span>
+                    <span className="text-slate-900 dark:text-white text-lg font-bold">
+                      £{dashboardData?.credit.currentMonth?.remainingCredit != null 
+                        ? dashboardData.credit.currentMonth.remainingCredit.toFixed(2) 
+                        : '0.00'}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-xs text-primary self-start"
+                    onClick={() => navigate('/finance')}
+                  >
+                    View Transaction History
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -767,63 +789,6 @@ export const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Recent Transactions */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 dark:border-slate-800">
-                <CardTitle className="flex items-center gap-2">
-                  <Icon name="receipt" className="text-primary" />
-                  Recent Transactions
-                </CardTitle>
-                <Button variant="ghost" size="sm" className="text-sm font-bold text-primary">
-                  View All
-                </Button>
-              </CardHeader>
-              <CardContent className="p-0 overflow-x-auto">
-                <Table className="min-w-[650px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Receipts</TableHead>
-                      <TableHead className="text-right">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell>{formatDateUK(new Date('2023-10-20'))}</TableCell>
-                      <TableCell>Room Booking - Pimlico Room 1</TableCell>
-                      <TableCell className="font-medium">-£25.00</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" disabled>
-                          <Icon name="download" size={16} className="mr-1" />
-                          Download
-                        </Button>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant="success">Completed</Badge>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>{formatDateUK(new Date('2023-10-18'))}</TableCell>
-                      <TableCell>Credit Top-up</TableCell>
-                      <TableCell className="font-medium text-green-600 dark:text-green-400">
-                        +£100.00
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" disabled>
-                          <Icon name="download" size={16} className="mr-1" />
-                          Download
-                        </Button>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant="success">Completed</Badge>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
           </div>
 
           {/* Right Column (Documents Widget) */}

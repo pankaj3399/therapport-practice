@@ -110,6 +110,21 @@ export async function grantCredits(
   sourceId?: string,
   description?: string
 ): Promise<string> {
+  return grantCreditsWithDate(userId, amount, expiryDate, sourceType, sourceId, description);
+}
+
+/**
+ * Grant credits with a custom grantDate (for pay-the-difference to match booking date).
+ */
+export async function grantCreditsWithDate(
+  userId: string,
+  amount: number,
+  expiryDate: string,
+  sourceType: CreditSourceType,
+  sourceId?: string,
+  description?: string,
+  grantDate?: string
+): Promise<string> {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new RangeError('Credit amount must be a finite number greater than 0');
   }
@@ -127,7 +142,7 @@ export async function grantCredits(
       amount: amountStr,
       usedAmount: '0.00',
       remainingAmount: amountStr,
-      grantDate: todayUtcString(),
+      grantDate: grantDate || todayUtcString(),
       expiryDate,
       sourceType,
       sourceId: sourceId ?? null,

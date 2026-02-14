@@ -8,6 +8,7 @@ import { CreditService } from '../services/credit.service';
 import { FileService } from '../services/file.service';
 import { ReminderService, type DocumentReminderMetadata } from '../services/reminder.service';
 import { emailService } from '../services/email.service';
+import { getTransactionHistory } from '../services/transaction-history.service';
 import { logger } from '../utils/logger.util';
 import { calculateExpiryStatus } from '../utils/date.util';
 import { z, ZodError } from 'zod';
@@ -665,6 +666,62 @@ export class PractitionerController {
     } catch (error: unknown) {
       logger.error(
         'Failed to get reminders',
+        error,
+        {
+          userId: req.user?.id,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
+
+  async getTransactionHistory(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const userId = req.user.id;
+      const monthParam = typeof req.query.month === 'string' ? req.query.month : undefined;
+
+      // Normalize month: validate format or default to current month
+      let normalizedMonth: string;
+      if (monthParam) {
+        // Validate month format (YYYY-MM) and month range (01-12)
+        if (!/^\d{4}-\d{2}$/.test(monthParam)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid month format. Expected YYYY-MM',
+          });
+        }
+        const [, monthStr] = monthParam.split('-');
+        const monthNum = parseInt(monthStr, 10);
+        if (monthNum < 1 || monthNum > 12) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid month. Month must be between 01 and 12',
+          });
+        }
+        normalizedMonth = monthParam;
+      } else {
+        // Default to current month if not provided
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const monthNum = now.getUTCMonth() + 1;
+        normalizedMonth = `${year}-${String(monthNum).padStart(2, '0')}`;
+      }
+
+      const transactions = await getTransactionHistory(userId, normalizedMonth);
+
+      res.status(200).json({
+        success: true,
+        data: transactions,
+      });
+    } catch (error: unknown) {
+      logger.error(
+        'Failed to get transaction history',
         error,
         {
           userId: req.user?.id,

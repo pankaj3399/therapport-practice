@@ -116,5 +116,10 @@ router.get(
   authenticate,
   practitionerController.getReminders.bind(practitionerController)
 );
+router.get(
+  '/transaction-history',
+  authenticate,
+  practitionerController.getTransactionHistory.bind(practitionerController)
+);
 
 export default router;

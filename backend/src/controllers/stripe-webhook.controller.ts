@@ -30,7 +30,8 @@ async function grantPayDifferenceCredits(
   userId: string,
   amountReceived: number,
   description: string,
-  sourceId?: string
+  sourceId?: string,
+  bookingDate?: string
 ): Promise<string> {
   const amountGBP = amountReceived / 100;
   const d = new Date();
@@ -38,13 +39,16 @@ async function grantPayDifferenceCredits(
   const m = d.getUTCMonth();
   const lastDay = new Date(Date.UTC(y, m + 1, 0));
   const expiryDate = lastDay.toISOString().split('T')[0];
-  return CreditTransactionService.grantCredits(
+  // Use booking date as grantDate if provided, otherwise use today (reuse d to avoid redundant Date creation)
+  const grantDate = bookingDate || d.toISOString().split('T')[0];
+  return CreditTransactionService.grantCreditsWithDate(
     userId,
     amountGBP,
     expiryDate,
     'pay_difference',
     sourceId,
-    description
+    description,
+    grantDate
   );
 }
 
@@ -230,7 +234,8 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
               break;
             }
             // For pay-the-difference, payment directly covers the shortfall
-            // Do NOT grant credits - pass payment amount to createBooking instead
+            // Convert amountReceived (pence) to GBP for passing to createBooking
+            // Note: Credits are NOT granted for new bookings - payment appears in transaction history via booking record
             const paymentAmountGBP = amountReceived / 100;
             const result = await BookingService.createBooking(
               userId,
@@ -249,10 +254,16 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
                 date,
               });
             } else if ('id' in result) {
+              // For new bookings with pay-the-difference, the payment directly covers the shortfall
+              // We do NOT grant credits because the payment is not a credit grant - it's a direct payment
+              // The payment will still appear in transaction history via the booking record
+              // (Note: For booking updates, we DO grant credits because the booking already exists)
               logger.info('Pay-the-difference booking created', {
                 eventId: event.id,
                 userId,
                 bookingId: result.id,
+                paymentAmountGBP: paymentAmountGBP,
+                paymentIntentId: paymentIntent.id,
               });
             }
           }
