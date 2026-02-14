@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -25,10 +26,34 @@ function formatInvoiceDate(created: number): string {
   });
 }
 
+interface TransactionHistoryEntry {
+  date: string;
+  description: string;
+  amount: number;
+  type: 'credit_grant' | 'credit_used' | 'booking' | 'voucher_allocation';
+}
+
 export const Finance: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [transactionHistory, setTransactionHistory] = useState<TransactionHistoryEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  
+  // Get month from URL params or default to current month
+  const getCurrentMonth = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    return `${year}-${String(month).padStart(2, '0')}`;
+  };
+  
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const monthParam = searchParams.get('month');
+    return monthParam || getCurrentMonth();
+  });
 
   const fetchInvoices = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -54,11 +79,76 @@ export const Finance: React.FC = () => {
     }
   }, []);
 
+  const fetchTransactionHistory = useCallback(async (month: string, signal?: AbortSignal) => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const res = await practitionerApi.getTransactionHistory(month, signal);
+      if (signal?.aborted) return;
+      if (res.data.success && Array.isArray(res.data.data)) {
+        setTransactionHistory(res.data.data);
+      } else {
+        setTransactionHistory([]);
+      }
+    } catch (err) {
+      if (
+        signal?.aborted ||
+        (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError'))
+      )
+        return;
+      setTransactionHistory([]);
+      setHistoryError('Failed to load transaction history');
+    } finally {
+      if (!signal?.aborted) setLoadingHistory(false);
+    }
+  }, []);
+
   useEffect(() => {
     const c = new AbortController();
     fetchInvoices(c.signal);
     return () => c.abort();
   }, [fetchInvoices]);
+
+  useEffect(() => {
+    const c = new AbortController();
+    fetchTransactionHistory(selectedMonth, c.signal);
+    // Update URL params when month changes
+    if (selectedMonth) {
+      setSearchParams({ month: selectedMonth }, { replace: true });
+    }
+    return () => c.abort();
+  }, [selectedMonth, fetchTransactionHistory, setSearchParams]);
+
+  // Format date as DD.MM.YYYY
+  const formatTransactionDate = (dateStr: string): string => {
+    const [year, month, day] = dateStr.split('-');
+    return `${day}.${month}.${year}`;
+  };
+
+  // Format amount with proper sign
+  const formatTransactionAmount = (amount: number): string => {
+    if (amount === 0) return '0';
+    if (amount > 0) return `+${amount.toFixed(2)}`;
+    return amount.toFixed(2);
+  };
+
+  // Group transactions by month
+  const groupedTransactions = transactionHistory.reduce((acc, transaction) => {
+    const [year, month] = transaction.date.split('-');
+    const monthKey = `${year}-${month}`;
+    if (!acc[monthKey]) {
+      acc[monthKey] = [];
+    }
+    acc[monthKey].push(transaction);
+    return acc;
+  }, {} as Record<string, TransactionHistoryEntry[]>);
+
+  // Format month label (e.g., "February 2026")
+  const formatMonthLabel = (monthKey: string): string => {
+    const [year, month] = monthKey.split('-');
+    const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1);
+    return date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  };
 
   return (
     <MainLayout>
@@ -66,9 +156,86 @@ export const Finance: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Finance</h1>
           <p className="text-slate-600 dark:text-slate-400 mt-1">
-            View and download your invoice history from Stripe.
+            View your transaction history and download invoices from Stripe.
           </p>
         </div>
+
+        {/* Transaction History */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Icon name="receipt" className="text-primary" />
+                Transaction History
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-600 dark:text-slate-400">Month:</label>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loadingHistory ? (
+              <p className="text-sm text-slate-500">Loading transaction history…</p>
+            ) : historyError ? (
+              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                {historyError}
+              </p>
+            ) : transactionHistory.length === 0 ? (
+              <p className="text-sm text-slate-500">No transactions for this month.</p>
+            ) : (
+              <div className="space-y-6">
+                {Object.entries(groupedTransactions)
+                  .sort(([a], [b]) => b.localeCompare(a))
+                  .map(([monthKey, transactions]) => (
+                    <div key={monthKey}>
+                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">
+                        {formatMonthLabel(monthKey)}
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Transaction details</TableHead>
+                              <TableHead className="text-right">Amount in GBP</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {transactions.map((transaction, idx) => (
+                              <TableRow key={`${transaction.date}-${idx}`}>
+                                <TableCell className="font-medium">
+                                  {formatTransactionDate(transaction.date)}
+                                </TableCell>
+                                <TableCell>{transaction.description}</TableCell>
+                                <TableCell
+                                  className={`text-right font-medium ${
+                                    transaction.amount > 0
+                                      ? 'text-green-600 dark:text-green-400'
+                                      : transaction.amount < 0
+                                      ? 'text-slate-900 dark:text-white'
+                                      : 'text-slate-500 dark:text-slate-400'
+                                  }`}
+                                >
+                                  {transaction.amount !== 0 && '£'}
+                                  {formatTransactionAmount(transaction.amount)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-2">

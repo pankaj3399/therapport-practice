@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AxiosError } from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -147,6 +148,7 @@ function formatMonthKeyToLabel(month: string): string {
 
 export const Bookings: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const postSuccessControllerRef = useRef<AbortController | null>(null);
 
   const [location, setLocation] = useState<LocationName>('Pimlico');
@@ -537,36 +539,62 @@ export const Bookings: React.FC = () => {
           <CardContent>
             {loadingCredit ? (
               <p className="text-sm text-slate-500">Loading…</p>
-            ) : credit?.currentMonth ? (
+            ) : credit?.membershipType === 'permanent' ? (
               <div className="space-y-2">
-                <p className="text-lg font-bold text-primary">
-                  £{credit.currentMonth.remainingCredit.toFixed(2)} available
-                  <span className="text-sm font-normal text-slate-500 dark:text-slate-400 ml-2">
-                    ({credit.currentMonth.monthYear})
-                  </span>
-                </p>
-                {monthlyCreditBreakdown.length > 0 && (
-                  <div className="text-sm text-slate-600 dark:text-slate-300">
-                    <p className="font-medium">By expiry month</p>
-                    <ul className="mt-1 space-y-0.5">
-                      {monthlyCreditBreakdown.map(({ month, remainingCredit }) => (
-                        <li key={month} className="flex justify-between">
-                          <span>{formatMonthKeyToLabel(month)}</span>
-                          <span className="tabular-nums">
-                            £{remainingCredit.toFixed(2)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                <p className="text-sm text-slate-500">Permanent membership — no credit balance.</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-primary mt-2"
+                  onClick={() => navigate('/finance')}
+                >
+                  View Transaction History
+                </Button>
+              </div>
+            ) : monthlyCreditBreakdown.length > 0 ? (
+              <div className="space-y-2">
+                <ul className="space-y-1">
+                  {monthlyCreditBreakdown.map(({ month, remainingCredit }) => (
+                    <li key={month} className="flex items-center gap-2">
+                      <span className="text-sm text-slate-600 dark:text-slate-300">
+                        {formatMonthKeyToLabel(month)}
+                      </span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">
+                        £{remainingCredit.toFixed(2)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-primary mt-2"
+                  onClick={() => navigate('/finance')}
+                >
+                  View Transaction History
+                </Button>
               </div>
             ) : (
-              <p className="text-sm text-slate-500">
-                {credit?.membershipType === 'permanent'
-                  ? 'Permanent membership — no credit balance.'
-                  : 'No credit data.'}
-              </p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-600 dark:text-slate-300">
+                    {credit?.currentMonth?.monthYear
+                      ? formatMonthKeyToLabel(credit.currentMonth.monthYear.slice(0, 7))
+                      : formatMonthKeyToLabel(new Date().toISOString().slice(0, 7))}
+                  </span>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">
+                    £0.00
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-primary mt-2"
+                  onClick={() => navigate('/finance')}
+                >
+                  View Transaction History
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>

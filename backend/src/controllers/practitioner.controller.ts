@@ -675,6 +675,58 @@ export class PractitionerController {
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }
+
+  async getTransactionHistory(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const userId = req.user.id;
+      const month = typeof req.query.month === 'string' ? req.query.month : undefined;
+
+      // Default to current month if not provided
+      if (!month) {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const monthNum = now.getUTCMonth() + 1;
+        const monthStr = `${year}-${String(monthNum).padStart(2, '0')}`;
+        const { getTransactionHistory } = await import('../services/transaction-history.service');
+        const transactions = await getTransactionHistory(userId, monthStr);
+        return res.status(200).json({
+          success: true,
+          data: transactions,
+        });
+      }
+
+      // Validate month format (YYYY-MM)
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid month format. Expected YYYY-MM',
+        });
+      }
+
+      const { getTransactionHistory } = await import('../services/transaction-history.service');
+      const transactions = await getTransactionHistory(userId, month);
+
+      res.status(200).json({
+        success: true,
+        data: transactions,
+      });
+    } catch (error: unknown) {
+      logger.error(
+        'Failed to get transaction history',
+        error,
+        {
+          userId: req.user?.id,
+          method: req.method,
+          url: req.originalUrl,
+        }
+      );
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
 }
 
 export const practitionerController = new PractitionerController();
